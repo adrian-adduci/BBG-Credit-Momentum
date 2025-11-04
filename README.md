@@ -52,7 +52,7 @@ A production-ready Streamlit application that analyzes Bloomberg economic data t
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/A-sqed/BBG-Credit-Momentum.git
+git clone https://github.com/adrian-adduci/BBG-Credit-Momentum.git
 cd BBG-Credit-Momentum
 
 # 2. Install dependencies
@@ -77,7 +77,7 @@ The dashboard will open in your browser at `http://localhost:8501`.
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/A-sqed/BBG-Credit-Momentum.git
+git clone https://github.com/adrian-adduci/BBG-Credit-Momentum.git
 cd BBG-Credit-Momentum
 ```
 
@@ -420,13 +420,13 @@ BBG-Credit-Momentum/
 ## 🎯 Example Outputs
 
 ### Historical Data & Forecasts
-![Historical Data](https://github.com/A-sqed/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/example_forecast.PNG)
+![Historical Data](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/example_forecast.PNG)
 
 ### Feature Importance Over Time
-![Feature Importance Over Time](https://github.com/A-sqed/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/feats_importance_over_time.png)
+![Feature Importance Over Time](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/feats_importance_over_time.png)
 
 ### Predictive Power Analysis
-![Predictive Power](https://github.com/A-sqed/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/predictive_power.png)
+![Predictive Power](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/predictive_power.png)
 
 ---
 
@@ -596,7 +596,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Adrian Adduci**
 - Email: FAA2160@columbia.edu
-- GitHub: [@A-sqed](https://github.com/A-sqed)
+- GitHub: [@adrian-adduci](https://github.com/adrian-adduci)
 
 ---
 
@@ -650,10 +650,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 For questions, issues, or feature requests:
-- **GitHub Issues**: [Create an issue](https://github.com/A-sqed/BBG-Credit-Momentum/issues)
+- **GitHub Issues**: [Create an issue](https://github.com/adrian-adduci/BBG-Credit-Momentum/issues)
 - **Email**: FAA2160@columbia.edu
 - **Documentation**: See [CHANGES.md](CHANGES.md) for detailed guides
 
 ---
-
-**Made with ❤️ for quantitative finance**
