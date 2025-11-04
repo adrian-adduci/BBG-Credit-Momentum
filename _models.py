@@ -2,7 +2,8 @@
 # Author: Adrian Adduci
 # Email: FAA2160@columbia.edu
 ################################################################################
-
+from dotenv import load_dotenv
+import os
 import logging
 import os
 import pathlib
