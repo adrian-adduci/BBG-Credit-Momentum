@@ -1,0 +1,94 @@
+# Configuration file for BBG-Credit-Momentum Application
+# Copy this file to config.yaml and customize for your environment
+
+# Data Source Configuration
+data_source:
+  # Options: "excel", "csv", "bloomberg"
+  type: "excel"
+
+  # Excel-specific settings
+  excel:
+    file_path: "data/Economic_Data_2020_08_01.xlsx"
+    sheet_name: 0  # 0 = first sheet
+    date_column: "Dates"
+
+  # CSV-specific settings (uncomment to use)
+  # csv:
+  #   file_path: "data/economic_data.csv"
+  #   date_column: "Dates"
+  #   date_format: "%Y-%m-%d"  # Optional: specify date format
+
+  # Bloomberg API settings (uncomment to use)
+  # bloomberg:
+  #   securities:
+  #     - "LF98TRUU Index"
+  #     - "LUACTRUU Index"
+  #   fields:
+  #     - "OAS"
+  #     - "PX_LAST"
+  #   start_date: "2020-01-01"
+  #   end_date: "2020-12-31"
+  #   host: "localhost"
+  #   port: 8194
+
+# Model Configuration
+model:
+  # Model type: "XGBoost", "CART", "AdaBoostClassifier", etc.
+  type: "XGBoost"
+
+  # Model parameters
+  estimators: 1000
+  random_state: 42
+
+  # Training parameters
+  test_split: 0.20  # 20% of data for testing
+  sequential: false  # Set to true for time-series split without shuffle
+
+# Feature Engineering
+features:
+  # Target column name
+  target: "LF98TRUU_Index_OAS"
+
+  # Columns to calculate momentum for
+  momentum_columns:
+    - "LF98TRUU_Index_OAS"
+    - "LUACTRUU_Index_OAS"
+
+  # Momentum calculation windows (days)
+  momentum_short_windows: [5, 10, 15]  # Short-term windows
+  momentum_long_window: 30  # Long-term baseline
+
+  # Forecast horizons (days ahead to predict)
+  forecast_horizons: [1, 3, 7, 15, 30]
+
+# Analysis Settings
+analysis:
+  # Feature importance thresholds
+  importance_threshold: 0.05  # Minimum feature importance to display
+  usefulness_threshold: 0.2  # Minimum max importance over time
+  ppscore_threshold: 0.5  # Minimum predictive power score
+
+  # Forecast range for analysis
+  max_forecast_days: 30
+
+  # Time series cross-validation splits
+  cv_splits: 5
+
+# Streamlit UI Settings
+ui:
+  # Default date range for data display
+  default_start_date: "2012-08-08"
+  default_end_date: "2020-07-31"
+
+  # Chart settings
+  chart_width: 1100
+  image_width: 1000
+
+# Logging
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Performance
+performance:
+  # Number of threads for numerical operations
+  numexpr_threads: 16

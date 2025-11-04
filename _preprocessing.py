@@ -6,28 +6,23 @@
 # WIP: Current DF return begins 1-month after start date/ need to decrease
 #   for shorter analysis windows
 
-import datetime
-import json
 import logging
-import operator
 import os
 import pathlib
-import sys
-import time
 
 import numpy as np
 import pandas as pd
-import streamlit as st
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from tabulate import tabulate
-from tqdm import tqdm
 
 path = pathlib.Path(__file__).parent.absolute()
 logger = logging.getLogger("_preprocess_xlsx")
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler(str(path) + "\\logs\\_preprocess.log")
+handler = logging.FileHandler(path / "logs" / "_preprocess.log")
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 # Pre-Processing of XLSX Into Pandas Dataframe
@@ -35,6 +30,33 @@ os.environ["NUMEXPR_MAX_THREADS"] = "16"
 
 
 class _preprocess_xlsx:
+    """
+    Preprocesses Excel data for machine learning model training.
+
+    Loads Bloomberg economic data from Excel files, creates momentum features,
+    splits data into train/test sets, and prepares features for model training.
+
+    Args:
+        xlsx_file: Path to the Excel file or file-like object
+        target_col: Name of the column to use as the target variable
+        forecast_list: List of forecast horizons in days (default: [1, 3, 7, 15, 30])
+        momentum_list: List of column names to calculate momentum features for
+        split_percentage: Percentage of data to use for testing (default: 0.20)
+        sequential: Whether to shuffle data before splitting (default: False)
+        momentum_X_days: Short-term windows for momentum calculation (default: [5, 10, 15])
+        momentum_Y_days: Long-term baseline window for momentum (default: 30)
+
+    Raises:
+        FileNotFoundError: If xlsx_file doesn't exist
+        ValueError: If required columns are missing or data is invalid
+
+    Attributes:
+        df: Raw DataFrame loaded from Excel
+        complete_data: Cleaned DataFrame with NaN values removed
+        X_train, X_test: Training and test feature sets
+        Y_train, Y_test: Training and test target sets
+        feature_cols: List of feature column names
+    """
     def __init__(
         self,
         xlsx_file,
@@ -47,18 +69,32 @@ class _preprocess_xlsx:
         momentum_Y_days=30,
     ):
 
-        logger.info(
-            " Preprocessing, using XLSX: {} and target(s): {}".format(
-                xlsx_file, target_col
-            )
-        )
+        logger.info(f" Preprocessing, using XLSX: {xlsx_file} and target(s): {target_col}")
 
+        # Validate Excel file exists
+        if not pathlib.Path(xlsx_file).is_file():
+            error_msg = f"Excel file not found: {xlsx_file}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Load Excel file with error handling
         try:
-            assert (pathlib.Path(xlsx_file)).is_file()
+            self.df = pd.read_excel(xlsx_file)
         except Exception as e:
-            logger.debug(" Missing XLSX File")
+            error_msg = f"Failed to read Excel file: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
-        self.df = pd.read_excel(xlsx_file)
+        # Validate required columns
+        if "Dates" not in self.df.columns:
+            error_msg = "Excel file must contain a 'Dates' column"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if target_col not in self.df.columns:
+            error_msg = f"Target column '{target_col}' not found in Excel file"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         self.label_encoder = preprocessing.LabelEncoder()
         self.target_col = target_col
         self.forecast_list = forecast_list
@@ -96,18 +132,42 @@ class _preprocess_xlsx:
     # Class Methods
     ################################################################################
 
-    # Find - (sum_i)( p_i * log_2 (p_i) ) for each i
     def _find_entropy_of_feature(self, df_target_col):
+        """
+        Calculate the entropy of a target feature.
+
+        Entropy measures the uncertainty/information content in a feature.
+        Formula: -Σ(p_i * log2(p_i)) for each unique value i
+
+        Args:
+            df_target_col: Pandas Series containing the target feature values
+
+        Returns:
+            float: Entropy value (higher = more uncertainty)
+        """
         target_counts = df_target_col.value_counts().astype(float).values
         total = df_target_col.count()
         probas = target_counts / total
         entropy_components = probas * np.log2(probas)
         entropy = -entropy_components.sum()
-        logger.info(" Entropy of target feature is {}".format(entropy))
+        logger.info(f" Entropy of target feature is {entropy}")
         return entropy
 
-    # H(target) - H(target | info > thresh) - H(target | info <= thresh)
     def _information_gain(self, info_column, target_col, threshold=0.5):
+        """
+        Calculate information gain of a feature relative to a target.
+
+        Information gain measures how much knowing a feature reduces uncertainty
+        about the target. Formula: H(target) - H(target|feature)
+
+        Args:
+            info_column: Name of the feature column to evaluate
+            target_col: Name of the target column
+            threshold: Split threshold for the feature (default: 0.5)
+
+        Returns:
+            float: Information gain value (higher = more predictive power)
+        """
 
         data_above_thresh = self.df[self.df[info_column] > threshold]
         data_below_thresh = self.df[self.df[info_column] <= threshold]
@@ -146,19 +206,22 @@ class _preprocess_xlsx:
     ################################################################################
 
     def _add_custom_features(self):
-        try:
-            self.df["EARN_DOWN"] = self.df["EARN_DOWN"].astype(np.float16)
-        except ValueError as e:
-            logger.debug(" EARN_DOWN Not Included in XLSX")
-            print(e)
-            return
+        # Optional: Convert EARN_DOWN and EARN_UP if they exist
+        if "EARN_DOWN" in self.df.columns:
+            try:
+                self.df["EARN_DOWN"] = self.df["EARN_DOWN"].astype(np.float16)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert EARN_DOWN to float16: {str(e)}")
+        else:
+            logger.debug("EARN_DOWN not included in Excel file (optional column)")
 
-        try:
-            self.df["EARN_UP"] = self.df["EARN_UP"].astype(np.float16)
-        except ValueError as e:
-            logger.debug(" EARN_UP Not Included in XLSX")
-            print(e)
-            return
+        if "EARN_UP" in self.df.columns:
+            try:
+                self.df["EARN_UP"] = self.df["EARN_UP"].astype(np.float16)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not convert EARN_UP to float16: {str(e)}")
+        else:
+            logger.debug("EARN_UP not included in Excel file (optional column)")
 
         # Add new momentum features
         self._add_momentum(
@@ -166,43 +229,71 @@ class _preprocess_xlsx:
         )
 
     def _add_momentum(self, momentum_list, momentum_X_days, momentum_Y_days):
+        """
+        Add momentum features using rolling window averages.
 
-        logger.info(" momentum_list: {}".format(momentum_list))
+        Momentum is calculated as the percent change from short-term average
+        to long-term average: (short_avg - long_avg) / long_avg
+
+        Args:
+            momentum_list: List of column names to calculate momentum for
+            momentum_X_days: List of short-term window sizes (e.g., [5, 10, 15])
+            momentum_Y_days: Long-term baseline window size (e.g., 30)
+
+        Raises:
+            ValueError: If momentum columns don't exist in the DataFrame
+
+        Creates:
+            New columns named "{column}_{window}day_rolling_average" for each
+            combination of column and window size
+        """
+
+        logger.info(f" momentum_list: {momentum_list}")
 
         if not momentum_list:
             return
 
-        if momentum_X_days == None:
-            momentum_X_days == self.momentum_X_days
-        if momentum_Y_days == None:
-            momentum_Y_days == self.momentum_Y_days
+        # Validate momentum columns exist
+        missing_cols = [col for col in momentum_list if col not in self.df.columns]
+        if missing_cols:
+            error_msg = f"Momentum columns not found in Excel: {missing_cols}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
-        else:
-            for item in momentum_list:
-                for win in momentum_X_days:
-                    new_item = str(item) + "_" + str(win) + "day_rolling_average"
-                    self.df[new_item] = (
-                        self.df[item].rolling(window=win).mean()
-                        - self.df[item].rolling(window=momentum_Y_days).mean()
-                        / self.df[item].rolling(window=momentum_Y_days).mean()
-                    )
-                    logger.info(" Adding new col for {}".format(new_item))
+        if momentum_X_days is None:
+            momentum_X_days = self.momentum_X_days
+        if momentum_Y_days is None:
+            momentum_Y_days = self.momentum_Y_days
+
+        for item in momentum_list:
+            for win in momentum_X_days:
+                new_item = f"{item}_{win}day_rolling_average"
+                try:
+                    # Cache rolling calculations to avoid redundant computation
+                    y_day_avg = self.df[item].rolling(window=momentum_Y_days).mean()
+                    x_day_avg = self.df[item].rolling(window=win).mean()
+                    # Calculate momentum: (short_term - long_term) / long_term
+                    self.df[new_item] = (x_day_avg - y_day_avg) / y_day_avg
+                    logger.info(f" Adding new col for {new_item}")
+                except Exception as e:
+                    logger.error(f"Failed to calculate momentum for {item}: {str(e)}")
+                    raise
 
     # Add column to df with net change from day to dh in future
     def _change_over_days(self, dh=None):
         if dh == None:
             for dh in self.forecast_list:
 
-                logger.debug(" Processing for {} days ahead".format(dh))
-                self.target_change = "{}_{}_Day_Change".format(self.target_col, dh)
+                logger.debug(f" Processing for {dh} days ahead")
+                self.target_change = f"{self.target_col}_{dh}_Day_Change"
                 self.df[str(self.target_change)] = self.df[self.target_col] - self.df[
                     self.target_col
                 ].shift(dh)
         else:
             for d in dh:
 
-                logger.debug(" Processing for {} days ahead".format(d))
-                self.target_change = "{}_{}_Day_Change".format(self.target_col, d)
+                logger.debug(f" Processing for {d} days ahead")
+                self.target_change = f"{self.target_col}_{d}_Day_Change"
                 self.df[str(self.target_change)] = self.df[self.target_col] - self.df[
                     self.target_col
                 ].shift(d)

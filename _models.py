@@ -2,8 +2,6 @@
 # Author: Adrian Adduci
 # Email: FAA2160@columbia.edu
 ################################################################################
-from dotenv import load_dotenv
-import os
 import logging
 import os
 import pathlib
@@ -18,22 +16,15 @@ import numpy as np
 import pandas as pd
 import ppscore as pps
 import seaborn as sns
-import streamlit as st
 from sklearn import linear_model, metrics
-from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
-from sklearn.exceptions import NotFittedError
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.metrics import (mean_squared_error, plot_precision_recall_curve,
-                             plot_roc_curve)
-from sklearn.model_selection import (TimeSeriesSplit, cross_val_score,
-                                     train_test_split)
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures
 from sklearn.tree import DecisionTreeRegressor
-from sktime.forecasting.model_selection import SingleWindowSplitter
-from statsmodels.tsa.stattools import adfuller, grangercausalitytests
-from xgboost import XGBRegressor, plot_importance, plot_tree
+from xgboost import XGBRegressor
 
 path = pathlib.Path(__file__).parent.absolute()
 
@@ -41,8 +32,10 @@ path = pathlib.Path(__file__).parent.absolute()
 warnings.filterwarnings("ignore")
 logger = logging.getLogger("_model")
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler(str(path) + "\\logs\\_model.log")
+handler = logging.FileHandler(path / "logs" / "_model.log")
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 # Fit and Predict a Chosen Model
@@ -50,6 +43,36 @@ os.environ["NUMEXPR_MAX_THREADS"] = "16"
 
 
 class _build_model:
+    """
+    Builds and trains machine learning models for time series forecasting.
+
+    Trains models on preprocessed data, generates predictions, and analyzes
+    feature importance over multiple forecast horizons. Supports various
+    sklearn models including XGBoost, CART, and regression models.
+
+    Args:
+        pipeline: _preprocess_xlsx object containing preprocessed data
+        model_name: Name of the model to use (default: "XGBoost")
+            Options: "XGBoost", "CART", "AdaBoostClassifier",
+                     "LogisticRegression", "Quadratic Regression", "KNeighborsRegressor"
+        estimators: Number of estimators for ensemble models (default: 1000)
+        random_state: Random seed for reproducibility
+        max_forecast: Maximum forecast horizon in days (default: 30)
+
+    Attributes:
+        model: Trained sklearn model
+        model_preds: Predictions on test set
+        X_train, X_test, Y_train, Y_test: Training and test data splits
+        final_data: Complete dataset with forecasts
+        scores: Cross-validation scores
+        features_over_time_dict: Feature importance across forecast horizons
+
+    Example:
+        >>> pipeline = _preprocess_xlsx("data.xlsx", "target_col")
+        >>> model = _build_model(pipeline, model_name="XGBoost")
+        >>> model.predictive_power(forecast_range=30)
+        >>> mae, mse, rmse = model._return_mean_error_metrics()
+    """
     def __init__(
         self,
         pipeline,
@@ -83,7 +106,7 @@ class _build_model:
         ) = pipeline._return_Y_encoded()
         self.X_df, self.Y_df = pipeline._return_X_Y_dataframe()
 
-        logger.info(" Selecting model {}".format(model_name))
+        logger.info(f" Selecting model {model_name}")
 
         # Default Models
         self.models_available = {
@@ -99,11 +122,11 @@ class _build_model:
         self.model = self.models_available.get(model_name)
         tss = TimeSeriesSplit(n_splits=self.timeseries_splits).split(self.X_df)
 
-        logger.info(" Fitting model: \n {}".format(self.model))
+        logger.info(f" Fitting model: \n {self.model}")
         self.model.fit(self.X_train, self.Y_train)
 
         # Predict
-        logger.info(" Predicting with model: \n {}".format(self.model))
+        logger.info(f" Predicting with model: \n {self.model}")
         self.model_preds = self.model.predict(self.X_test)
 
         self.final_data = self.pipeline._return_complete_data()
@@ -126,6 +149,20 @@ class _build_model:
     # Class Methods
     ################################################################################
     def predictive_power(self, forecast_range=30, plot=True):
+        """
+        Calculate and visualize predictive power scores for all features.
+
+        Uses the ppscore library to identify which features have the highest
+        predictive power for the target variable at a specific forecast horizon.
+
+        Args:
+            forecast_range: Number of days ahead to forecast (default: 30)
+            plot: Whether to display the plot (default: True)
+
+        Creates:
+            PNG file saved to _img/predictive_power.png showing bar chart
+            of features with ppscore > 0.5
+        """
 
         all_data, X_data, Y_data = self.pipeline._return_data_with_dh_actuals(
             forecast_range
@@ -141,16 +178,32 @@ class _build_model:
 
         f, ax = plt.subplots(figsize=(16, 5))
         ax.set_title(
-            "Predicative Power for {0} at {1} Days".format(
-                pipeline_target, forecast_range
-            )
+            f"Predicative Power for {pipeline_target} at {forecast_range} Days"
         )
         sns.barplot(data=predictors_df, y="x", x="ppscore", palette="rocket")
-        plt.savefig((str(path)) + "\\_img\\predictive_power.png", bbox_inches="tight")
+        plt.savefig(path / "_img" / "predictive_power.png", bbox_inches="tight")
         if plot:
             f.show()
 
     def _feature_importance(self, forecast_range=30, plot=True):
+        """
+        Calculate and visualize feature importance for each forecast day.
+
+        Refits the model for each day in the forecast range and extracts
+        feature importances. Only features with importance > 0.05 are retained.
+
+        Args:
+            forecast_range: Number of days ahead to forecast (default: 30)
+            plot: Whether to display the plot (default: True)
+
+        Updates:
+            self.features_over_time_dict: Dictionary mapping each day to
+                feature importances for that forecast horizon
+
+        Creates:
+            PNG file saved to _img/feats_importance.png showing bar chart
+            of top features for the final forecast day
+        """
 
         pipeline_target = self.pipeline._return_target_col()
 
@@ -166,7 +219,7 @@ class _build_model:
             X_scaled = self.scaler.fit_transform(X_data[day])
             X_scaled = pd.DataFrame(X_scaled, columns=X_feature_cols)
 
-            logger.info(" Fitting Scaled Model: Day {}".format(day))
+            logger.info(f" Fitting Scaled Model: Day {day}")
             model_scaled = self.model.fit(X_scaled, Y_data[day])
             importances = model_scaled.feature_importances_
 
@@ -202,12 +255,10 @@ class _build_model:
                     if target == day:
                         f, ax = plt.subplots(figsize=(16, 5))
                         ax.set_title(
-                            "Feature Importance for {0} Day Forecast: {1}".format(
-                                target, pipeline_target
-                            )
+                            f"Feature Importance for {target} Day Forecast: {pipeline_target}"
                         )
                         sns.barplot(y=list(keys), x=list(values), palette="rocket")
-                        plt.savefig((str(path)) + "\\_img\\feats_importance.png")
+                        plt.savefig(path / "_img" / "feats_importance.png")
                         if plot:
                             f.show()
 
@@ -230,7 +281,7 @@ class _build_model:
                 column_names = list(df.columns)
             else:
                 feature_dict = pd.DataFrame.from_dict(self.features_over_time_dict[day])
-                df = df.append(feature_dict, ignore_index=True)
+                df = pd.concat([df, feature_dict], ignore_index=True)
         df["day"] = list_of_days_to_forecast
 
         remove_list = []
@@ -250,7 +301,7 @@ class _build_model:
         f, ax = plt.subplots(figsize=(14, 6))
         for feat in column_names:
             sns.lineplot(data=df, x="day", y=df[feat], dashes=False).set_title(
-                "{0} Feature Importance By Time".format(pipeline_target)
+                f"{pipeline_target} Feature Importance By Time"
             )
         sns.set_style("whitegrid")
         ax.grid(True)
@@ -258,7 +309,7 @@ class _build_model:
         ax.set(xticks=list(range(1, forecast_range + 1)))
         ax.legend(column_names)
         plt.savefig(
-            (str(path)) + "\\_img\\feats_importance_over_time.png", bbox_inches="tight"
+            path / "_img" / "feats_importance_over_time.png", bbox_inches="tight"
         )
 
     # Classification only, n/a for regression models
@@ -284,23 +335,34 @@ class _build_model:
         return fig_roc
 
     def _return_mean_error_metrics(self):
+        """
+        Calculate and return model error metrics.
+
+        Computes Mean Absolute Error (MAE), Mean Squared Error (MSE),
+        and Root Mean Squared Error (RMSE) for the test set predictions.
+
+        Returns:
+            tuple: (MAE, MSE, RMSE) as floats
+
+        Example:
+            >>> mae, mse, rmse = model._return_mean_error_metrics()
+            >>> print(f"Model RMSE: {rmse:.4f}")
+        """
         MAE = metrics.mean_absolute_error(self.Y_test, self.model_preds)
         MSE = metrics.mean_squared_error(self.Y_test, self.model_preds)
         RMSE = np.sqrt(metrics.mean_squared_error(self.Y_test, self.model_preds))
-        logger.info("MAE: {:.4}".format(MAE))
-        logger.info("MSE: {:.4}".format(MSE))
-        logger.info("RMSE: {:.4}".format(RMSE))
+        logger.info(f"MAE: {MAE:.4}")
+        logger.info(f"MSE: {MSE:.4}")
+        logger.info(f"RMSE: {RMSE:.4}")
 
         errors_MAE = list()
-        errors = list()
         errors_RMSE = list()
         num_predictions = [int(num) for num in range(1, len(self.model_preds) + 1)]
 
         pipeline_target = self.pipeline._return_target_col()
 
-        for i in range(0, len(self.Y_test)):
-            err = (list(self.Y_test)[i] - list(self.model_preds)[i]) * 2
-            errors.append(err)
+        # Vectorized error calculation
+        errors = ((np.array(self.Y_test) - self.model_preds) * 2).tolist()
 
         err_MSE_df = pd.DataFrame(
             list(zip(num_predictions, errors)), columns=["Prediction", "MSE"]

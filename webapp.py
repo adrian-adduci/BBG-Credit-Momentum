@@ -2,26 +2,25 @@
 # Author: Adrian Adduci
 # Email: FAA2160@columbia.edu
 ################################################################################
-import os
-from itertools import filterfalse
-
-import streamlit as st
-
-st.set_option("deprecation.showfileUploaderEncoding", False)
 import datetime
 import logging
+import os
 import pathlib
+
+import streamlit as st
+from streamlit import session_state
+
+st.set_option("deprecation.showfileUploaderEncoding", False)
 
 import _models
 import _preprocessing
 import pandas as pd
 import plotly.express as px
 from PIL import Image
-from streamlit import session_state
 
 path = pathlib.Path(__file__).parent.absolute()
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
-banner = Image.open(str(path) + "\\_img\\arrow_logo.png")
+banner = Image.open(path / "_img" / "arrow_logo.png")
 st.sidebar.image(
     banner, caption="ML Predictions From Bloomberg Data Pulls", width=200,
 )
@@ -30,10 +29,10 @@ pd.set_option("display.max_columns", None)
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-log_info = logging.getLogger(__name__)
-log_info.setLevel(logging.INFO)
-handler = logging.FileHandler(str(path) + "/logs/_main.log")
+handler = logging.FileHandler(path / "logs" / "_main.log")
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+log.addHandler(handler)
 
 ################################################################################
 #  Helper Functions
@@ -126,35 +125,59 @@ date_range = st.sidebar.date_input(
 # If Data File -> Pre-process raw data
 if st.sidebar.button("Load Data "):
 
-    if "file_buffer" in session_state:
-        my_bar = st.progress(0)
-        log.info(" Preprocessing Data File")
-        my_bar.progress(20)
-        session_state.momentum_list = list(session_state.momentum_list.split(","))
-        session_state.pipeline = _preprocessing._preprocess_xlsx(
-            session_state.file_buffer,
-            session_state.target_feature,
-            momentum_list=session_state.momentum_list,
-        )
-        my_bar.progress(60)
+    if "file_buffer" in session_state and session_state.file_buffer is not None:
+        try:
+            my_bar = st.progress(0)
+            log.info(" Preprocessing Data File")
+            my_bar.progress(20)
 
-        session_state.data = session_state.pipeline._return_dataframe()
+            # Validate and clean momentum list input
+            momentum_input = session_state.momentum_list.strip()
+            if momentum_input:
+                session_state.momentum_list = [col.strip() for col in momentum_input.split(",")]
+            else:
+                session_state.momentum_list = []
 
-        my_bar.progress(80)
+            # Validate target feature is not empty
+            if not session_state.target_feature or not session_state.target_feature.strip():
+                st.sidebar.error("Target feature cannot be empty")
+                my_bar.progress(0)
+            else:
+                session_state.pipeline = _preprocessing._preprocess_xlsx(
+                    session_state.file_buffer,
+                    session_state.target_feature.strip(),
+                    momentum_list=session_state.momentum_list,
+                )
+                my_bar.progress(60)
 
-        # Set dates in the dataframe
-        session_state.data["Dates"] = pd.to_datetime(
-            session_state.data["Dates"]
-        ).dt.date
+                session_state.data = session_state.pipeline._return_dataframe()
 
-        # WIP - Autosize date range based on XLSX
-        session_state.data = session_state.data[
-            (session_state.data["Dates"] >= date_range[0])
-            & (session_state.data["Dates"] <= date_range[1])
-        ]
-        my_bar.progress(100)
-        st.success("Model Loaded Successfully")
-        my_bar.progress(0)
+                my_bar.progress(80)
+
+                # Set dates in the dataframe
+                session_state.data["Dates"] = pd.to_datetime(
+                    session_state.data["Dates"]
+                ).dt.date
+
+                # WIP - Autosize date range based on XLSX
+                session_state.data = session_state.data[
+                    (session_state.data["Dates"] >= date_range[0])
+                    & (session_state.data["Dates"] <= date_range[1])
+                ]
+                my_bar.progress(100)
+                st.success("Data Loaded Successfully")
+                my_bar.progress(0)
+
+        except FileNotFoundError as e:
+            st.sidebar.error(f"File not found: {str(e)}")
+            my_bar.progress(0)
+        except ValueError as e:
+            st.sidebar.error(f"Invalid data: {str(e)}")
+            my_bar.progress(0)
+        except Exception as e:
+            st.sidebar.error(f"Error loading data: {str(e)}")
+            log.error(f"Error in data loading: {str(e)}")
+            my_bar.progress(0)
 
     else:
         st.sidebar.info("Please select a file")
@@ -173,16 +196,20 @@ if st.sidebar.button("Train Model"):
         and "model" not in session_state
         and session_state.model_type != ""
     ):
+        try:
+            log.info(f" Training Model: {session_state.model_type}")
 
-        log.info(" Training Model: {}".format(session_state.model_type))
+            # _build_model and return it to sessions state
+            run_model(session_state.model_type)
 
-        # _build_model and return it to sessions state
-        run_model(session_state.model_type)
+            if session_state.model_type == "XGBoost":
+                session_state.regression = True
 
-        if session_state.model_type == "XGBoost":
-            session_state.regression = True
+            st.success("Model Trained Successfully")
 
-        st.success("Model Trained Successfully")
+        except Exception as e:
+            st.sidebar.error(f"Error training model: {str(e)}")
+            log.error(f"Error in model training: {str(e)}")
 
     elif "data" not in session_state:
         st.sidebar.warning("Please load data to train")
@@ -217,7 +244,7 @@ if "data" in session_state and "model_type" in session_state:
         pass
         # st.info('Currently Trained Model: {}'.format(session_state.model_type))
     elif session_state.model_type != "":
-        st.info("Currently Selected Model: {}".format(session_state.model_type))
+        st.info(f"Currently Selected Model: {session_state.model_type}")
 
 if "model" in session_state:
     my_bar = st.progress(0)
@@ -279,15 +306,15 @@ if "model" in session_state:
             fig = px.line(df_2target, x="Dates", y="Value", color="Target", width=1100)
             st.plotly_chart(fig)
 
-            features = Image.open(str(path) + "\\_img\\predictive_power.png")
+            features = Image.open(path / "_img" / "predictive_power.png")
             st.image(features, caption="Predictive Power of Features", width=1000)
             my_bar.progress(60)
-            features = Image.open(str(path) + "\\_img\\feats_importance.png")
+            features = Image.open(path / "_img" / "feats_importance.png")
             st.image(
                 features, caption="Features Importance For Forecast Period", width=1000
             )
             my_bar.progress(70)
-            features = Image.open(str(path) + "\\_img\\feats_importance_over_time.png")
+            features = Image.open(path / "_img" / "feats_importance_over_time.png")
             st.image(features, caption="Features Importance Over Time", width=1000)
             my_bar.progress(100)
 
