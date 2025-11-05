@@ -9,7 +9,7 @@ A production-ready Streamlit application that analyzes Bloomberg economic data t
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [Quick Start](#quick-start)
@@ -25,7 +25,7 @@ A production-ready Streamlit application that analyzes Bloomberg economic data t
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Functionality
 - 📊 **Interactive Streamlit Dashboard** - Real-time model training and visualization
