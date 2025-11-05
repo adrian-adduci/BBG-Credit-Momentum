@@ -67,6 +67,7 @@ class _preprocess_xlsx:
         sequential=False,
         momentum_X_days=[5, 10, 15],
         momentum_Y_days=30,
+        crypto_features=False,
     ):
 
         logger.info(f" Preprocessing, using XLSX: {xlsx_file} and target(s): {target_col}")
@@ -103,6 +104,7 @@ class _preprocess_xlsx:
         self.sequential = sequential
         self.momentum_X_days = momentum_X_days
         self.momentum_Y_days = momentum_Y_days
+        self.crypto_features = crypto_features
 
         self._add_custom_features()
 
@@ -228,6 +230,10 @@ class _preprocess_xlsx:
             self.momentum_list, self.momentum_X_days, self.momentum_Y_days
         )
 
+        # Add crypto-specific technical indicators if enabled
+        if self.crypto_features:
+            self._add_crypto_features()
+
     def _add_momentum(self, momentum_list, momentum_X_days, momentum_Y_days):
         """
         Add momentum features using rolling window averages.
@@ -278,6 +284,220 @@ class _preprocess_xlsx:
                 except Exception as e:
                     logger.error(f"Failed to calculate momentum for {item}: {str(e)}")
                     raise
+
+    def _add_crypto_features(self):
+        """
+        Add cryptocurrency-specific technical indicators.
+
+        Implements common trading indicators including:
+        - RSI (Relative Strength Index)
+        - MACD (Moving Average Convergence Divergence)
+        - Bollinger Bands
+        - VWAP (Volume-Weighted Average Price)
+        - Volatility
+
+        Features are added to self.df as new columns.
+        """
+        logger.info(" Adding cryptocurrency technical indicators")
+
+        # Find price and volume columns
+        close_cols = [col for col in self.df.columns if col.endswith("_close")]
+        volume_cols = [col for col in self.df.columns if col.endswith("_volume")]
+
+        for close_col in close_cols:
+            symbol_base = close_col.replace("_close", "")
+            logger.info(f" Adding indicators for {symbol_base}")
+
+            # RSI (Relative Strength Index)
+            try:
+                rsi = self._calculate_rsi(close_col, window=14)
+                self.df[f"{symbol_base}_rsi_14"] = rsi
+                logger.info(f"   ✓ RSI added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ RSI failed for {symbol_base}: {e}")
+
+            # MACD
+            try:
+                macd, signal, histogram = self._calculate_macd(close_col)
+                self.df[f"{symbol_base}_macd"] = macd
+                self.df[f"{symbol_base}_macd_signal"] = signal
+                self.df[f"{symbol_base}_macd_histogram"] = histogram
+                logger.info(f"   ✓ MACD added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ MACD failed for {symbol_base}: {e}")
+
+            # Bollinger Bands
+            try:
+                upper, middle, lower = self._calculate_bollinger_bands(close_col)
+                self.df[f"{symbol_base}_bb_upper"] = upper
+                self.df[f"{symbol_base}_bb_middle"] = middle
+                self.df[f"{symbol_base}_bb_lower"] = lower
+                # Add distance from bands (useful feature)
+                self.df[f"{symbol_base}_bb_position"] = (
+                    (self.df[close_col] - lower) / (upper - lower)
+                )
+                logger.info(f"   ✓ Bollinger Bands added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ Bollinger Bands failed for {symbol_base}: {e}")
+
+            # VWAP (if volume data available)
+            volume_col = f"{symbol_base}_volume"
+            if volume_col in volume_cols:
+                try:
+                    vwap = self._calculate_vwap(close_col, volume_col)
+                    self.df[f"{symbol_base}_vwap_24"] = vwap
+                    logger.info(f"   ✓ VWAP added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ VWAP failed for {symbol_base}: {e}")
+
+            # Volatility
+            try:
+                volatility = self._calculate_volatility(close_col)
+                self.df[f"{symbol_base}_volatility_20"] = volatility
+                logger.info(f"   ✓ Volatility added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ Volatility failed for {symbol_base}: {e}")
+
+        logger.info(" Crypto technical indicators complete")
+
+    def _calculate_rsi(self, column, window=14):
+        """
+        Calculate Relative Strength Index (RSI).
+
+        RSI measures momentum by comparing magnitude of recent gains
+        to recent losses. Values range from 0-100.
+        - RSI > 70: Overbought (potential sell signal)
+        - RSI < 30: Oversold (potential buy signal)
+
+        Args:
+            column: Column name with price data
+            window: Period for RSI calculation (default: 14)
+
+        Returns:
+            pd.Series: RSI values
+        """
+        delta = self.df[column].diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+
+        avg_gain = gain.rolling(window=window).mean()
+        avg_loss = loss.rolling(window=window).mean()
+
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+
+        return rsi
+
+    def _calculate_macd(self, column, fast=12, slow=26, signal=9):
+        """
+        Calculate MACD (Moving Average Convergence Divergence).
+
+        MACD shows relationship between two exponential moving averages.
+        - MACD line = EMA(fast) - EMA(slow)
+        - Signal line = EMA(MACD, signal)
+        - Histogram = MACD - Signal
+
+        Signals:
+        - MACD crosses above signal: Bullish (buy)
+        - MACD crosses below signal: Bearish (sell)
+
+        Args:
+            column: Column name with price data
+            fast: Fast EMA period (default: 12)
+            slow: Slow EMA period (default: 26)
+            signal: Signal line period (default: 9)
+
+        Returns:
+            tuple: (macd, signal_line, histogram)
+        """
+        ema_fast = self.df[column].ewm(span=fast, adjust=False).mean()
+        ema_slow = self.df[column].ewm(span=slow, adjust=False).mean()
+
+        macd = ema_fast - ema_slow
+        signal_line = macd.ewm(span=signal, adjust=False).mean()
+        histogram = macd - signal_line
+
+        return macd, signal_line, histogram
+
+    def _calculate_bollinger_bands(self, column, window=20, num_std=2):
+        """
+        Calculate Bollinger Bands.
+
+        Bollinger Bands consist of:
+        - Middle band: Simple moving average (SMA)
+        - Upper band: SMA + (std * num_std)
+        - Lower band: SMA - (std * num_std)
+
+        Signals:
+        - Price touches upper band: Overbought
+        - Price touches lower band: Oversold
+        - Bands squeeze: Low volatility (breakout coming)
+        - Bands expand: High volatility
+
+        Args:
+            column: Column name with price data
+            window: Period for SMA (default: 20)
+            num_std: Number of standard deviations (default: 2)
+
+        Returns:
+            tuple: (upper_band, middle_band, lower_band)
+        """
+        sma = self.df[column].rolling(window=window).mean()
+        std = self.df[column].rolling(window=window).std()
+
+        upper_band = sma + (std * num_std)
+        lower_band = sma - (std * num_std)
+
+        return upper_band, sma, lower_band
+
+    def _calculate_vwap(self, price_column, volume_column, window=24):
+        """
+        Calculate Volume-Weighted Average Price (VWAP).
+
+        VWAP = Σ(Price * Volume) / Σ(Volume)
+
+        Used to assess average price weighted by volume. Traders use VWAP as:
+        - Benchmark for execution quality
+        - Support/resistance level
+        - Trend confirmation
+
+        Args:
+            price_column: Column name with price data
+            volume_column: Column name with volume data
+            window: Rolling window (default: 24 for daily on hourly data)
+
+        Returns:
+            pd.Series: VWAP values
+        """
+        typical_price = self.df[price_column]
+        volume = self.df[volume_column]
+
+        vwap = (
+            (typical_price * volume).rolling(window=window).sum() /
+            volume.rolling(window=window).sum()
+        )
+
+        return vwap
+
+    def _calculate_volatility(self, column, window=20):
+        """
+        Calculate rolling volatility (realized volatility).
+
+        Volatility = Standard deviation of returns * sqrt(252)
+
+        Measures price fluctuation. Higher volatility = higher risk/reward.
+
+        Args:
+            column: Column name with price data
+            window: Rolling window (default: 20)
+
+        Returns:
+            pd.Series: Annualized volatility values
+        """
+        returns = self.df[column].pct_change()
+        volatility = returns.rolling(window=window).std() * np.sqrt(252)
+
+        return volatility
 
     # Add column to df with net change from day to dh in future
     def _change_over_days(self, dh=None):

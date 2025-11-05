@@ -405,10 +405,19 @@ class DataSourceFactory:
             return CSVDataSource(**kwargs)
         elif source_type == "bloomberg":
             return BloombergAPIDataSource(**kwargs)
+        elif source_type == "crypto":
+            from _crypto_data_sources import CryptoExchangeDataSource
+            return CryptoExchangeDataSource(**kwargs)
+        elif source_type == "crypto_ws":
+            from _crypto_data_sources import CryptoWebSocketDataSource
+            return CryptoWebSocketDataSource(**kwargs)
+        elif source_type == "crypto_agg":
+            from _crypto_data_sources import CryptoAggregatorDataSource
+            return CryptoAggregatorDataSource(**kwargs)
         else:
             raise ValueError(
                 f"Unknown data source type: {source_type}. "
-                f"Supported types: 'excel', 'csv', 'bloomberg'"
+                f"Supported types: 'excel', 'csv', 'bloomberg', 'crypto', 'crypto_ws', 'crypto_agg'"
             )
 
 
