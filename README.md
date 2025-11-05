@@ -28,27 +28,27 @@ A production-ready Streamlit application that analyzes Bloomberg economic data t
 ## Features
 
 ### Core Functionality
-- 📊 **Interactive Streamlit Dashboard** - Real-time model training and visualization
-- 🤖 **XGBoost Time Series Forecasting** - Predict credit spreads 1-30 days ahead
-- 📈 **Momentum Feature Engineering** - Automated rolling average calculations
-- 🎯 **Feature Importance Analysis** - Identify key momentum drivers over time
-- ⚡ **Predictive Power Scoring** - Rank features by predictive capability
-- 📉 **Model Performance Metrics** - MAE, MSE, RMSE with visualizations
+- **Interactive Streamlit Dashboard** - Real-time model training and visualization
+- **XGBoost Time Series Forecasting** - Predict credit spreads 1-30 days ahead
+- **Momentum Feature Engineering** - Automated rolling average calculations
+- **Feature Importance Analysis** - Identify key momentum drivers over time
+- **Predictive Power Scoring** - Rank features by predictive capability
+- **Model Performance Metrics** - MAE, MSE, RMSE with visualizations
 
 ### Data Sources
-- ✅ **Excel Files** (Bloomberg exports) - Fully supported
-- ✅ **CSV Files** - Fully supported
-- 🔄 **Bloomberg API** - Template provided (requires completion)
-- 🔌 **Extensible Architecture** - Easy to add custom data sources
+- **Excel Files** (Bloomberg exports) - Fully supported
+- **CSV Files** - Fully supported
+- **Bloomberg API** - Template provided (requires completion)
+- **Extensible Architecture** - Easy to add custom data sources
 
 ### Configuration
-- ⚙️ **YAML Configuration** - Centralized settings management
-- 🔐 **Environment Variables** - Secure credential storage
-- 🎛️ **Flexible Parameters** - Customize models, features, and analysis
+- **YAML Configuration** - Centralized settings management
+- **Environment Variables** - Secure credential storage
+- **Flexible Parameters** - Customize models, features, and analysis
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # 1. Clone the repository
@@ -66,7 +66,7 @@ The dashboard will open in your browser at `http://localhost:8501`.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 
@@ -127,7 +127,7 @@ nano .env
 
 ---
 
-## 📖 Usage
+## Usage
 
 ### Method 1: Web Interface (Recommended)
 
@@ -210,7 +210,7 @@ pipeline = _preprocess_xlsx(df, **preprocessing_config)
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### YAML Configuration (config.yaml)
 
@@ -270,7 +270,7 @@ Environment variables override YAML settings.
 
 ---
 
-## 📊 Data Sources
+## Data Sources
 
 ### Excel Files (Current Method)
 
@@ -334,7 +334,7 @@ See [CHANGES.md](CHANGES.md) for detailed Bloomberg API integration guide.
 
 ---
 
-## 🤖 Model Details
+## Model Details
 
 ### Supported Models
 
@@ -376,7 +376,7 @@ momentum = (short_term_avg - long_term_avg) / long_term_avg
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 BBG-Credit-Momentum/
@@ -417,7 +417,7 @@ BBG-Credit-Momentum/
 
 ---
 
-## 🎯 Example Outputs
+## Example Outputs
 
 ### Historical Data & Forecasts
 ![Historical Data](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/example_forecast.PNG)
@@ -430,39 +430,39 @@ BBG-Credit-Momentum/
 
 ---
 
-## 🔄 Recent Improvements
+## Recent Improvements
 
 **Version: 2025-11-04 Review Update**
 
 ### Critical Fixes
-- ✅ Fixed momentum calculation bug (operator precedence)
-- ✅ Fixed broken logging system (handlers now properly attached)
-- ✅ Updated dependencies (eliminated 2 security CVEs)
-- ✅ Replaced deprecated pandas methods
+- Fixed momentum calculation bug (operator precedence)
+- Fixed broken logging system (handlers now properly attached)
+- Updated dependencies (eliminated 2 security CVEs)
+- Replaced deprecated pandas methods
 
 ### Performance Improvements
-- ⚡ 104x faster error calculation (vectorized)
-- ⚡ 2x faster momentum computation (cached rolling averages)
-- ⚡ 25% faster import time (removed unused imports)
+- 104x faster error calculation (vectorized)
+- 2x faster momentum computation (cached rolling averages)
+- 25% faster import time (removed unused imports)
 
 ### New Features
-- 🏗️ Data source abstraction layer (Excel, CSV, Bloomberg API)
-- ⚙️ Configuration management system (YAML + environment variables)
-- 📚 Comprehensive documentation (docstrings for all public APIs)
-- ✅ Input validation and error handling throughout
-- 🎨 Cross-platform path handling (Windows, macOS, Linux)
+- Data source abstraction layer (Excel, CSV, Bloomberg API)
+- Configuration management system (YAML + environment variables)
+- Comprehensive documentation (docstrings for all public APIs)
+- Input validation and error handling throughout
+- Cross-platform path handling (Windows, macOS, Linux)
 
 ### Code Quality
-- 📝 Standardized code style (f-strings, pathlib)
-- 🧹 Removed 20+ unused imports
-- 📖 Added 15+ docstrings with examples
-- 🔍 Improved error messages for users
+- Standardized code style (f-strings, pathlib)
+- Removed 20+ unused imports
+- Added 15+ docstrings with examples
+- Improved error messages for users
 
 See [CHANGES.md](CHANGES.md) for complete details (with code examples and migration guide).
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -510,7 +510,7 @@ mkdir logs
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Manual Testing
 
@@ -548,7 +548,7 @@ Coming soon! Contributions welcome.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -586,13 +586,13 @@ streamlit run webapp.py
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 👤 Author
+## Author
 
 **Adrian Adduci**
 - Email: FAA2160@columbia.edu
@@ -600,16 +600,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🙏 Acknowledgments
-
-- Bloomberg Terminal for data export functionality
-- Streamlit for the excellent web framework
-- XGBoost team for the powerful ML library
-- Columbia University
-
----
-
-## 📚 Additional Resources
+## Additional Resources
 
 - [Streamlit Documentation](https://docs.streamlit.io/)
 - [XGBoost Documentation](https://xgboost.readthedocs.io/)
@@ -619,9 +610,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
-### Completed ✅
+### Completed
 - [x] Excel data source support
 - [x] XGBoost model integration
 - [x] Feature importance analysis
@@ -630,12 +621,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Data source abstraction
 - [x] Comprehensive documentation
 
-### In Progress 🚧
+### In Progress
 - [ ] Bloomberg API integration (template provided)
 - [ ] Unit test suite
 - [ ] Additional ML models (Random Forest, LSTM)
 
-### Planned 📋
+### Planned
 - [ ] Real-time data updates
 - [ ] Model comparison dashboard
 - [ ] Docker containerization
@@ -647,7 +638,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📞 Support
+## Support
 
 For questions, issues, or feature requests:
 - **GitHub Issues**: [Create an issue](https://github.com/adrian-adduci/BBG-Credit-Momentum/issues)
