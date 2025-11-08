@@ -2,7 +2,7 @@
 
 **Machine Learning Decision Support System for Bloomberg Credit Analytics**
 
-A production-ready Streamlit application that analyzes Bloomberg economic data to identify momentum drivers for credit trading using XGBoost and sklearn models.
+A Streamlit application that analyzes economic data to identify momentum drivers for credit trading using XGBoost and sklearn models.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -428,39 +428,6 @@ BBG-Credit-Momentum/
 ### Predictive Power Analysis
 ![Predictive Power](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/predictive_power.png)
 
----
-
-## Recent Improvements
-
-**Version: 2025-11-04 Review Update**
-
-### Critical Fixes
-- Fixed momentum calculation bug (operator precedence)
-- Fixed broken logging system (handlers now properly attached)
-- Updated dependencies (eliminated 2 security CVEs)
-- Replaced deprecated pandas methods
-
-### Performance Improvements
-- 104x faster error calculation (vectorized)
-- 2x faster momentum computation (cached rolling averages)
-- 25% faster import time (removed unused imports)
-
-### New Features
-- Data source abstraction layer (Excel, CSV, Bloomberg API)
-- Configuration management system (YAML + environment variables)
-- Comprehensive documentation (docstrings for all public APIs)
-- Input validation and error handling throughout
-- Cross-platform path handling (Windows, macOS, Linux)
-
-### Code Quality
-- Standardized code style (f-strings, pathlib)
-- Removed 20+ unused imports
-- Added 15+ docstrings with examples
-- Improved error messages for users
-
-See [CHANGES.md](CHANGES.md) for complete details (with code examples and migration guide).
-
----
 
 ## Troubleshooting
 
@@ -548,16 +515,6 @@ Coming soon! Contributions welcome.
 
 ---
 
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
 ### Development Setup
 
 ```bash
@@ -574,17 +531,6 @@ pip install -r requirements.txt
 
 # Make changes and test
 streamlit run webapp.py
-```
-
-### Code Style
-
-- Follow PEP 8 style guide
-- Use f-strings for formatting
-- Add docstrings to all public functions/classes
-- Use pathlib for file paths (cross-platform)
-- Add type hints where possible
-
----
 
 ## License
 
@@ -608,41 +554,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [scikit-learn Documentation](https://scikit-learn.org/stable/)
 - [Bloomberg API Documentation](https://www.bloomberg.com/professional/support/api-library/)
 
----
-
-## Roadmap
-
-### Completed
-- [x] Excel data source support
-- [x] XGBoost model integration
-- [x] Feature importance analysis
-- [x] Streamlit dashboard
-- [x] Configuration system
-- [x] Data source abstraction
-- [x] Comprehensive documentation
-
-### In Progress
-- [ ] Bloomberg API integration (template provided)
-- [ ] Unit test suite
-- [ ] Additional ML models (Random Forest, LSTM)
-
-### Planned
-- [ ] Real-time data updates
-- [ ] Model comparison dashboard
-- [ ] Docker containerization
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] MLflow model tracking
-- [ ] Database integration (PostgreSQL)
-- [ ] REST API endpoints
-- [ ] Email alerts for forecasts
-
----
-
-## Support
-
-For questions, issues, or feature requests:
-- **GitHub Issues**: [Create an issue](https://github.com/adrian-adduci/BBG-Credit-Momentum/issues)
-- **Email**: FAA2160@columbia.edu
-- **Documentation**: See [CHANGES.md](CHANGES.md) for detailed guides
-
----
