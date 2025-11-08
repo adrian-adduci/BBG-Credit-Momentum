@@ -1,7 +1,7 @@
 # Claude Code
 CLAUDE.md
 .claude
-*.md
+PLANS.md
 
 # Environment and Secrets
 .env
