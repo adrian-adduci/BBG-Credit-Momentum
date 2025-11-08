@@ -380,6 +380,16 @@ class DataSourceFactory:
         ...     start_date=datetime(2020, 1, 1),
         ...     end_date=datetime(2020, 12, 31)
         ... )
+        >>>
+        >>> # Create from Blockchain provider
+        >>> source = DataSourceFactory.create(
+        ...     "blockchain",
+        ...     provider="glassnode",
+        ...     assets=["BTC", "ETH"],
+        ...     metrics=["mvrv", "nvt", "active_addresses"],
+        ...     start_date=datetime(2024, 1, 1),
+        ...     end_date=datetime.now()
+        ... )
     """
 
     @staticmethod
@@ -414,10 +424,13 @@ class DataSourceFactory:
         elif source_type == "crypto_agg":
             from _crypto_data_sources import CryptoAggregatorDataSource
             return CryptoAggregatorDataSource(**kwargs)
+        elif source_type == "blockchain":
+            from data_sources.blockchain_provider import BlockchainDataSource
+            return BlockchainDataSource(**kwargs)
         else:
             raise ValueError(
                 f"Unknown data source type: {source_type}. "
-                f"Supported types: 'excel', 'csv', 'bloomberg', 'crypto', 'crypto_ws', 'crypto_agg'"
+                f"Supported types: 'excel', 'csv', 'bloomberg', 'crypto', 'crypto_ws', 'crypto_agg', 'blockchain'"
             )
 
 

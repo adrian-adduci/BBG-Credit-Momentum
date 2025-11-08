@@ -1,7 +1,68 @@
-.env
+# Claude Code
 CLAUDE.md
+
+# Environment and Secrets
+.env
+.env.local
+.env.production
+
+# Logs
 *.log
 *.tmp
-.claude
-PLANS.md
-IMPLEMENTATION_SUMMARY.md
+logs/
+/mnt/bitcoin/logs/
+
+# API Keys and Credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Cloudflare Tunnel
+.cloudflared/
+cloudflared/*.json
+*.cfargotunnel.com
+
+# SSH Keys
+*.pub
+id_rsa
+id_ed25519
+authorized_keys.backup
+
+# Database
+*.sql.backup
+*.dump
+*.db
+backups/
+/mnt/database/backups/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Temporary files
+tmp/
+temp/

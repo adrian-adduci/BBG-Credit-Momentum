@@ -3,7 +3,7 @@
 
 # Data Source Configuration
 data_source:
-  # Use "crypto" for cryptocurrency exchanges
+  # Use "crypto" for cryptocurrency exchanges, "blockchain" for on-chain data
   type: "crypto"
 
   # Cryptocurrency exchange settings
@@ -18,6 +18,36 @@ data_source:
     start_date: "2023-01-01"
     end_date: "2024-12-31"
     limit: 1000  # Maximum candles per request
+
+  # Blockchain on-chain metrics settings
+  blockchain:
+    provider: "glassnode"  # Options: glassnode, coinmetrics
+    api_key: ${GLASSNODE_API_KEY}  # From environment variable
+    assets:
+      - "BTC"
+      - "ETH"
+    metrics:
+      - "mvrv"              # Market Value to Realized Value
+      - "nvt"               # Network Value to Transactions
+      - "active_addresses"  # Daily active addresses
+      - "exchange_netflow"  # Net flow to/from exchanges
+      - "sopr"              # Spent Output Profit Ratio
+      - "realized_cap"      # Realized capitalization
+    start_date: "2023-01-01"
+    end_date: "2024-12-31"
+    interval: "24h"  # Data granularity (24h for daily)
+
+  # PostgreSQL Database settings (for LAN database)
+  database:
+    enabled: true  # Enable database caching
+    host: ${DB_HOST}  # From environment variable (e.g., "192.168.1.100")
+    port: ${DB_PORT}  # Default: 5432
+    name: ${DB_NAME}  # Database name (e.g., "crypto_trading")
+    user: ${DB_USER}  # Database user
+    password: ${DB_PASSWORD}  # Database password
+    min_connections: 1  # Minimum connections in pool
+    max_connections: 10  # Maximum connections in pool
+    cache_ttl: 3600  # Cache data for 1 hour (seconds)
 
 # Model Configuration
 model:
@@ -83,6 +113,45 @@ features:
     volatility:
       enabled: true
       window: 20  # Rolling window for std dev
+
+    # Stochastic Oscillator
+    stochastic:
+      enabled: true
+      k_window: 14  # %K period
+      d_window: 3   # %D smoothing period
+
+    # Stochastic RSI
+    stochastic_rsi:
+      enabled: true
+      rsi_window: 14     # RSI calculation period
+      stoch_window: 14   # Stochastic calculation period
+      k_window: 3        # %K smoothing
+      d_window: 3        # %D smoothing
+
+    # Williams %R
+    williams_r:
+      enabled: true
+      window: 14  # Lookback period
+
+    # Rate of Change (ROC)
+    roc:
+      enabled: true
+      window: 10  # Lookback period for momentum
+
+    # Commodity Channel Index (CCI)
+    cci:
+      enabled: true
+      window: 20       # Moving average period
+      constant: 0.015  # Scaling constant (typically 0.015)
+
+    # Average True Range (ATR)
+    atr:
+      enabled: true
+      window: 14  # ATR period
+
+    # On-Balance Volume (OBV)
+    obv:
+      enabled: true  # Requires volume data
 
 # Analysis Settings
 analysis:

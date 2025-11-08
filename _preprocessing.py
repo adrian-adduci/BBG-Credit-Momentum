@@ -16,6 +16,10 @@ from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from tabulate import tabulate
 
+# Import new indicator modules
+from indicators.stochastic import StochasticIndicators
+from indicators.momentum import MomentumIndicators
+
 path = pathlib.Path(__file__).parent.absolute()
 logger = logging.getLogger("_preprocess_xlsx")
 logger.setLevel(logging.INFO)
@@ -302,7 +306,13 @@ class _preprocess_xlsx:
 
         # Find price and volume columns
         close_cols = [col for col in self.df.columns if col.endswith("_close")]
+        high_cols = [col for col in self.df.columns if col.endswith("_high")]
+        low_cols = [col for col in self.df.columns if col.endswith("_low")]
         volume_cols = [col for col in self.df.columns if col.endswith("_volume")]
+
+        # Initialize indicator calculators with debug mode
+        stoch_calc = StochasticIndicators(debug=logger.level == logging.DEBUG)
+        momentum_calc = MomentumIndicators(debug=logger.level == logging.DEBUG)
 
         for close_col in close_cols:
             symbol_base = close_col.replace("_close", "")
@@ -357,6 +367,103 @@ class _preprocess_xlsx:
                 logger.info(f"   ✓ Volatility added for {symbol_base}")
             except Exception as e:
                 logger.error(f"   ✗ Volatility failed for {symbol_base}: {e}")
+
+            # New stochastic indicators (requires high/low data)
+            high_col = f"{symbol_base}_high"
+            low_col = f"{symbol_base}_low"
+
+            if high_col in high_cols and low_col in low_cols:
+                # Stochastic Oscillator
+                try:
+                    stoch_k, stoch_d = stoch_calc.stochastic_oscillator(
+                        high=self.df[high_col],
+                        low=self.df[low_col],
+                        close=self.df[close_col],
+                        k_window=14,
+                        d_window=3,
+                    )
+                    self.df[f"{symbol_base}_stoch_k"] = stoch_k
+                    self.df[f"{symbol_base}_stoch_d"] = stoch_d
+                    logger.info(f"   ✓ Stochastic Oscillator added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ Stochastic Oscillator failed for {symbol_base}: {e}")
+
+                # Williams %R
+                try:
+                    williams = stoch_calc.williams_r(
+                        high=self.df[high_col],
+                        low=self.df[low_col],
+                        close=self.df[close_col],
+                        window=14,
+                    )
+                    self.df[f"{symbol_base}_williams_r"] = williams
+                    logger.info(f"   ✓ Williams %R added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ Williams %R failed for {symbol_base}: {e}")
+
+                # Commodity Channel Index (CCI)
+                try:
+                    cci = momentum_calc.commodity_channel_index(
+                        high=self.df[high_col],
+                        low=self.df[low_col],
+                        close=self.df[close_col],
+                        window=20,
+                    )
+                    self.df[f"{symbol_base}_cci"] = cci
+                    logger.info(f"   ✓ CCI added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ CCI failed for {symbol_base}: {e}")
+
+                # Average True Range (ATR)
+                try:
+                    atr = momentum_calc.average_true_range(
+                        high=self.df[high_col],
+                        low=self.df[low_col],
+                        close=self.df[close_col],
+                        window=14,
+                    )
+                    self.df[f"{symbol_base}_atr"] = atr
+                    logger.info(f"   ✓ ATR added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ ATR failed for {symbol_base}: {e}")
+
+            # Stochastic RSI (only needs close prices)
+            try:
+                stoch_rsi_k, stoch_rsi_d = stoch_calc.stochastic_rsi(
+                    close=self.df[close_col],
+                    rsi_window=14,
+                    stoch_window=14,
+                    k_window=3,
+                    d_window=3,
+                )
+                self.df[f"{symbol_base}_stoch_rsi_k"] = stoch_rsi_k
+                self.df[f"{symbol_base}_stoch_rsi_d"] = stoch_rsi_d
+                logger.info(f"   ✓ Stochastic RSI added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ Stochastic RSI failed for {symbol_base}: {e}")
+
+            # Rate of Change (ROC)
+            try:
+                roc = momentum_calc.rate_of_change(
+                    close=self.df[close_col],
+                    window=10,
+                )
+                self.df[f"{symbol_base}_roc_10"] = roc
+                logger.info(f"   ✓ ROC added for {symbol_base}")
+            except Exception as e:
+                logger.error(f"   ✗ ROC failed for {symbol_base}: {e}")
+
+            # On-Balance Volume (OBV) - requires volume data
+            if volume_col in volume_cols:
+                try:
+                    obv = momentum_calc.on_balance_volume(
+                        close=self.df[close_col],
+                        volume=self.df[volume_col],
+                    )
+                    self.df[f"{symbol_base}_obv"] = obv
+                    logger.info(f"   ✓ OBV added for {symbol_base}")
+                except Exception as e:
+                    logger.error(f"   ✗ OBV failed for {symbol_base}: {e}")
 
         logger.info(" Crypto technical indicators complete")
 
