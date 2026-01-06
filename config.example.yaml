@@ -21,15 +21,20 @@ data_source:
   # Bloomberg API settings (uncomment to use)
   # bloomberg:
   #   securities:
-  #     - "LF98TRUU Index"
-  #     - "LUACTRUU Index"
+  #     - "LF98TRUU Index"     # US Aggregate Bond Index
+  #     - "LUACTRUU Index"     # US Corporate Bond Index
   #   fields:
-  #     - "OAS"
-  #     - "PX_LAST"
+  #     - "OAS"                # Option-Adjusted Spread
+  #     - "PX_LAST"            # Last Price
+  #     - "DTS"                # Duration to Worst
+  #     - "YLD_YTM_MID"        # Yield to Maturity
   #   start_date: "2020-01-01"
   #   end_date: "2020-12-31"
   #   host: "localhost"
   #   port: 8194
+  #   timeout: 30000          # Connection timeout (milliseconds)
+  #   max_retries: 3          # Maximum retry attempts
+  #   excel_fallback: "data/bloomberg_export.xlsx"  # Excel file for fallback
 
 # Model Configuration
 model:
