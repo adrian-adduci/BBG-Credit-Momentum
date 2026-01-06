@@ -1,0 +1,280 @@
+# BBG Credit Momentum - Unified Configuration
+# Supports mixed portfolios: crypto securities + traditional credit securities
+#
+# This configuration enables analysis of crypto and traditional securities
+# in a single unified framework.
+
+# Data Source Configuration
+data_source:
+  # Use mixed_portfolio for combined crypto + traditional securities
+  type: "mixed_portfolio"
+
+  # Mixed Portfolio Settings
+  mixed_portfolio:
+    # Date range for all securities
+    start_date: "2020-01-01"
+    end_date: "2024-12-31"
+
+    # Data alignment settings
+    alignment_method: "outer"  # Options: "outer", "inner", "left"
+    fill_method: "ffill"       # Options: "ffill", "bfill", null
+    fill_limit: 5              # Maximum periods to forward/backward fill
+    validate: true             # Validate data quality after loading
+
+    # Securities list (crypto + traditional)
+    securities:
+      # Cryptocurrency Securities
+      - identifier: "BTC/USDT"
+        security_type: "crypto_spot"
+        source: "binance"
+        fields: ["close", "volume", "high", "low"]
+        metadata:
+          exchange: "binance"
+          timeframe: "1h"
+          display_name: "Bitcoin"
+        features:
+          technical_indicators: true
+          blockchain_metrics: true
+
+      - identifier: "ETH/USDT"
+        security_type: "crypto_spot"
+        source: "binance"
+        fields: ["close", "volume"]
+        metadata:
+          exchange: "binance"
+          timeframe: "1h"
+          display_name: "Ethereum"
+        features:
+          technical_indicators: true
+          blockchain_metrics: true
+
+      # Traditional Credit Securities (Bloomberg)
+      - identifier: "LF98TRUU Index"
+        security_type: "credit_index"
+        source: "bloomberg"
+        fields: ["OAS", "DTS", "PX_LAST"]
+        metadata:
+          display_name: "US Aggregate Bond Index"
+          excel_fallback: "data/bloomberg_export.xlsx"  # Fallback if API unavailable
+        features:
+          momentum: true
+          windows: [5, 10, 15]
+          baseline: 30
+
+      - identifier: "LUACTRUU Index"
+        security_type: "credit_index"
+        source: "bloomberg"
+        fields: ["OAS", "PX_LAST"]
+        metadata:
+          display_name: "US Corporate Bond Index"
+          excel_fallback: "data/bloomberg_export.xlsx"
+        features:
+          momentum: true
+
+      # Optional: Blockchain On-Chain Metrics
+      - identifier: "BTC"
+        security_type: "blockchain_metric"
+        source: "blockchain"
+        fields: ["mvrv", "nvt", "active_addresses"]
+        metadata:
+          provider: "glassnode"
+          display_name: "Bitcoin On-Chain Metrics"
+
+# Alternative: Individual Data Source Configuration (Legacy)
+# Uncomment to use single source type instead of mixed portfolio
+#
+# # For Bloomberg only:
+# data_source:
+#   type: "bloomberg_hybrid"
+#   bloomberg:
+#     securities: ["LF98TRUU Index", "LUACTRUU Index"]
+#     fields: ["OAS", "PX_LAST"]
+#     start_date: "2020-01-01"
+#     end_date: "2024-12-31"
+#     excel_fallback: "data/bloomberg_export.xlsx"
+#
+# # For Crypto only:
+# data_source:
+#   type: "crypto"
+#   crypto:
+#     exchange: "binance"
+#     symbols: ["BTC/USDT", "ETH/USDT"]
+#     timeframe: "1h"
+#     start_date: "2020-01-01"
+
+# Model Configuration
+model:
+  # Model type for prediction
+  type: "XGBoost"  # Options: "XGBoost", "CART", "AdaBoostClassifier"
+
+  # Model parameters
+  estimators: 1000
+  random_state: 42
+
+  # Training parameters
+  test_split: 0.20  # 20% of data for testing
+  sequential: false  # Set to true for time-series split without shuffle
+
+# Feature Engineering
+features:
+  # Primary target for prediction
+  # Can be any column from loaded securities
+  target: "BTC_USDT_close"  # or "LF98TRUU_Index_OAS" for credit
+
+  # Columns to calculate momentum for
+  momentum_columns:
+    - "BTC_USDT_close"
+    - "ETH_USDT_close"
+    - "LF98TRUU_Index_OAS"
+    - "LUACTRUU_Index_OAS"
+
+  # Momentum calculation windows (days)
+  momentum_short_windows: [5, 10, 15]  # Short-term windows
+  momentum_long_window: 30             # Long-term baseline
+
+  # Forecast horizons (days ahead to predict)
+  forecast_horizons: [1, 3, 7, 15, 30]
+
+  # Cross-Asset Features (new in unified mode)
+  cross_asset:
+    enabled: true
+
+    # Correlation features
+    correlations:
+      - pair: ["BTC_USDT_close", "LF98TRUU_Index_OAS"]
+        window: 30
+        method: "pearson"
+      - pair: ["ETH_USDT_close", "LUACTRUU_Index_OAS"]
+        window: 30
+        method: "pearson"
+
+    # Regime detection (risk-on/risk-off)
+    regime_detection:
+      enabled: true
+      crypto_indicator: "BTC_USDT_close"
+      credit_indicator: "LF98TRUU_Index_OAS"
+      window: 20
+
+# Crypto-Specific Features (only applied to crypto securities)
+crypto_features:
+  # Enable crypto technical indicators
+  enabled: true
+
+  # RSI settings
+  rsi:
+    enabled: true
+    period: 14
+
+  # MACD settings
+  macd:
+    enabled: true
+    fast: 12
+    slow: 26
+    signal: 9
+
+  # Bollinger Bands
+  bollinger:
+    enabled: true
+    period: 20
+    std: 2
+
+  # Stochastic Oscillator
+  stochastic:
+    enabled: true
+    k_window: 14
+    d_window: 3
+
+  # Additional indicators
+  indicators:
+    vwap: true
+    atr: true
+    obv: true
+    roc: true
+    cci: true
+
+# Analysis Settings
+analysis:
+  # Feature importance thresholds
+  importance_threshold: 0.05   # Minimum feature importance to display
+  usefulness_threshold: 0.2    # Minimum max importance over time
+  ppscore_threshold: 0.5       # Minimum predictive power score
+
+  # Forecast range for analysis
+  max_forecast_days: 30
+
+  # Time series cross-validation splits
+  cv_splits: 5
+
+# Bloomberg API Settings (for bloomberg sources)
+bloomberg:
+  host: "localhost"
+  port: 8194
+  timeout: 30000           # Connection timeout (milliseconds)
+  max_retries: 3           # Maximum retry attempts
+  batch_size: 100          # Securities per request
+
+# Crypto Exchange Settings
+crypto:
+  # API keys (set via environment variables for security)
+  # BINANCE_API_KEY and BINANCE_API_SECRET
+  rate_limit_delay: 1000   # Milliseconds between requests
+  max_candles_per_request: 1000
+
+# Blockchain Data Providers
+blockchain:
+  glassnode:
+    api_key: ${GLASSNODE_API_KEY}  # Set via environment variable
+    rate_limit: 60  # Requests per minute
+
+  coinmetrics:
+    api_key: ${COINMETRICS_API_KEY}
+    rate_limit: 10  # Requests per minute
+
+# Database (optional caching)
+database:
+  enabled: false  # Set to true to enable database caching
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+  name: "bbg_credit_momentum"
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  cache_ttl: 86400  # Cache TTL in seconds (1 day)
+
+# Streamlit UI Settings
+ui:
+  # Default date range for data display
+  default_start_date: "2020-01-01"
+  default_end_date: "2024-12-31"
+
+  # Chart settings
+  chart_width: 1100
+  image_width: 1000
+
+  # Multi-asset chart configuration
+  charts:
+    # Show crypto and credit on separate Y-axes
+    dual_axis: true
+    # Normalize values for comparison
+    normalize: false
+
+# Logging
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+  # Separate log files
+  files:
+    main: "logs/_main.log"
+    model: "logs/_model.log"
+    preprocess: "logs/_preprocess.log"
+    data_sources: "logs/_data_sources.log"
+    bloomberg: "logs/_bloomberg.log"
+    crypto: "logs/_crypto.log"
+
+# Performance
+performance:
+  # Number of threads for numerical operations
+  numexpr_threads: 16
+
+  # Parallel data loading (for mixed portfolio)
+  parallel_loading: true
+  max_workers: 4  # Maximum parallel data source workers

@@ -10,12 +10,14 @@ Bloomberg API, or other data sources. It allows easy switching between data
 sources without changing the preprocessing pipeline.
 """
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import logging
 import pathlib
 
 import pandas as pd
+import numpy as np
 
 logger = logging.getLogger("_data_sources")
 logger.setLevel(logging.INFO)
@@ -24,6 +26,96 @@ handler = logging.FileHandler(path / "logs" / "_data_sources.log")
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+################################################################################
+# Security Definition Classes
+################################################################################
+
+
+@dataclass
+class Security:
+    """
+    Universal security representation for any tradable instrument.
+
+    This class provides a unified way to represent both traditional securities
+    (Bloomberg credit indices, bonds) and crypto securities (BTC/USDT, ETH/USDT).
+
+    Attributes:
+        identifier: Security identifier (e.g., "BTC/USDT", "LF98TRUU Index")
+        security_type: Type of security ("crypto_spot", "credit_index", "equity", "fx")
+        source: Data source type ("binance", "bloomberg", "file")
+        fields: List of data fields to fetch (e.g., ["close", "volume"] or ["OAS", "DTS"])
+        metadata: Additional security-specific metadata
+        features: Feature engineering configuration for this security
+
+    Example:
+        >>> # Crypto security
+        >>> btc = Security(
+        ...     identifier="BTC/USDT",
+        ...     security_type="crypto_spot",
+        ...     source="binance",
+        ...     fields=["close", "volume"],
+        ...     metadata={"exchange": "binance", "timeframe": "1h"}
+        ... )
+        >>>
+        >>> # Credit index security
+        >>> credit = Security(
+        ...     identifier="LF98TRUU Index",
+        ...     security_type="credit_index",
+        ...     source="bloomberg",
+        ...     fields=["OAS", "DTS"],
+        ...     metadata={"display_name": "US Aggregate Bond Index"}
+        ... )
+    """
+
+    identifier: str
+    security_type: str
+    source: str
+    fields: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    features: Dict[str, Any] = field(default_factory=dict)
+
+    def to_column_prefix(self) -> str:
+        """
+        Generate DataFrame column prefix from security identifier.
+
+        Returns:
+            str: Column prefix with special characters replaced
+
+        Example:
+            >>> Security("BTC/USDT", ...).to_column_prefix()
+            "BTC_USDT"
+            >>> Security("LF98TRUU Index", ...).to_column_prefix()
+            "LF98TRUU_Index"
+        """
+        return self.identifier.replace("/", "_").replace(" ", "_").replace("-", "_")
+
+    def get_column_names(self) -> List[str]:
+        """
+        Get list of DataFrame column names for this security.
+
+        Returns:
+            List[str]: Column names like ["BTC_USDT_close", "BTC_USDT_volume"]
+
+        Example:
+            >>> sec = Security("BTC/USDT", ..., fields=["close", "volume"])
+            >>> sec.get_column_names()
+            ["BTC_USDT_close", "BTC_USDT_volume"]
+        """
+        prefix = self.to_column_prefix()
+        return [f"{prefix}_{field}" for field in self.fields]
+
+    def is_crypto(self) -> bool:
+        """Check if this is a cryptocurrency security."""
+        return self.security_type.startswith("crypto")
+
+    def is_credit(self) -> bool:
+        """Check if this is a credit security."""
+        return self.security_type in ["credit_index", "credit_bond"]
+
+    def __repr__(self) -> str:
+        return f"Security({self.identifier}, type={self.security_type}, source={self.source})"
+
 
 ################################################################################
 # Abstract Base Class
@@ -954,6 +1046,326 @@ class HybridBloombergDataSource(DataSource):
 
 
 ################################################################################
+# Mixed Portfolio Data Source (Unified Crypto + Traditional)
+################################################################################
+
+
+class MixedPortfolioDataSource(DataSource):
+    """
+    Unified data source for mixed portfolios (crypto + traditional securities).
+
+    This class combines multiple data sources (Bloomberg, crypto exchanges,
+    blockchain metrics) into a single DataFrame with aligned dates.
+
+    Features:
+    - Loads data from multiple sources in parallel
+    - Aligns dates across different market calendars (24/7 crypto vs weekday credit)
+    - Forward fills missing data with configurable limits
+    - Validates data quality across all securities
+    - Provides unified column naming
+
+    Args:
+        securities: List of Security objects to load
+        start_date: Start date for data range
+        end_date: End date for data range
+        alignment_method: How to align dates ("outer", "inner", "left")
+        fill_method: Method to fill missing values ("ffill", "bfill", None)
+        fill_limit: Maximum number of periods to forward/backward fill
+        validate: Whether to validate data after loading
+
+    Example:
+        >>> securities = [
+        ...     Security("BTC/USDT", "crypto_spot", "binance", ["close"]),
+        ...     Security("LF98TRUU Index", "credit_index", "bloomberg", ["OAS"])
+        ... ]
+        >>> source = MixedPortfolioDataSource(
+        ...     securities=securities,
+        ...     start_date=datetime(2020, 1, 1),
+        ...     end_date=datetime(2024, 12, 31),
+        ...     alignment_method="outer",
+        ...     fill_method="ffill",
+        ...     fill_limit=5
+        ... )
+        >>> df = source.load_data()
+        >>> print(df.columns)
+        ['Dates', 'BTC_USDT_close', 'LF98TRUU_Index_OAS']
+    """
+
+    def __init__(
+        self,
+        securities: List[Security],
+        start_date: datetime,
+        end_date: datetime,
+        alignment_method: str = "outer",
+        fill_method: Optional[str] = "ffill",
+        fill_limit: int = 5,
+        validate: bool = True
+    ):
+        self.securities = securities
+        self.start_date = start_date
+        self.end_date = end_date
+        self.alignment_method = alignment_method
+        self.fill_method = fill_method
+        self.fill_limit = fill_limit
+        self.validate = validate
+
+        logger.info(
+            f"MixedPortfolioDataSource initialized with {len(securities)} securities "
+            f"({sum(1 for s in securities if s.is_crypto())} crypto, "
+            f"{sum(1 for s in securities if s.is_credit())} credit)"
+        )
+
+    def load_data(self) -> pd.DataFrame:
+        """
+        Load and merge data from all securities.
+
+        Returns:
+            pd.DataFrame: Unified DataFrame with aligned dates and all securities
+
+        Raises:
+            ValueError: If no securities provided or all sources fail
+        """
+        if not self.securities:
+            raise ValueError("No securities provided to load")
+
+        # Load data from each security
+        security_dataframes = {}
+        for security in self.securities:
+            try:
+                logger.info(f"Loading data for {security.identifier}...")
+                df = self._load_security_data(security)
+                security_dataframes[security.identifier] = df
+                logger.info(
+                    f"Loaded {len(df)} rows for {security.identifier}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to load {security.identifier}: {e}"
+                )
+                # Continue with other securities
+
+        if not security_dataframes:
+            raise ValueError("Failed to load data from all securities")
+
+        # Merge all DataFrames
+        logger.info("Merging data from all securities...")
+        merged_df = self._merge_dataframes(security_dataframes)
+
+        # Fill missing values
+        if self.fill_method:
+            logger.info(
+                f"Filling missing values with {self.fill_method} "
+                f"(limit={self.fill_limit})"
+            )
+            merged_df = self._fill_missing_values(merged_df)
+
+        # Validate data
+        if self.validate:
+            self._validate_data(merged_df)
+
+        logger.info(
+            f"Successfully loaded mixed portfolio: {len(merged_df)} rows, "
+            f"{len(merged_df.columns) - 1} columns"
+        )
+
+        return merged_df
+
+    def _load_security_data(self, security: Security) -> pd.DataFrame:
+        """
+        Load data for a single security based on its source.
+
+        Args:
+            security: Security object to load
+
+        Returns:
+            pd.DataFrame: Data for this security with Dates column
+        """
+        source_type = security.source.lower()
+
+        # Determine data source based on security source
+        if source_type in ["binance", "coinbase", "kraken", "bybit", "okx"]:
+            # Crypto exchange
+            from _crypto_data_sources import CryptoExchangeDataSource
+            source = CryptoExchangeDataSource(
+                exchange_id=source_type,
+                symbols=[security.identifier],
+                timeframe=security.metadata.get("timeframe", "1h"),
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            df = source.load_data()
+
+        elif source_type == "bloomberg":
+            # Bloomberg API or Excel
+            excel_fallback = security.metadata.get("excel_fallback")
+            if excel_fallback:
+                # Use hybrid mode
+                source = HybridBloombergDataSource(
+                    securities=[security.identifier],
+                    fields=security.fields,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    excel_fallback_path=excel_fallback
+                )
+            else:
+                # API only
+                source = BloombergAPIDataSource(
+                    securities=[security.identifier],
+                    fields=security.fields,
+                    start_date=self.start_date,
+                    end_date=self.end_date
+                )
+            df = source.load_data()
+
+        elif source_type == "bloomberg_excel":
+            # Bloomberg Excel file
+            source = BloombergExcelDataSource(
+                file_path=security.metadata["file_path"]
+            )
+            df = source.load_data()
+
+        elif source_type == "excel":
+            # Generic Excel file
+            source = ExcelDataSource(
+                file_path=security.metadata["file_path"]
+            )
+            df = source.load_data()
+
+        elif source_type == "csv":
+            # CSV file
+            source = CSVDataSource(
+                file_path=security.metadata["file_path"]
+            )
+            df = source.load_data()
+
+        elif source_type == "blockchain":
+            # Blockchain on-chain metrics
+            from data_sources.blockchain_provider import BlockchainDataSource
+            provider = security.metadata.get("provider", "glassnode")
+            asset = security.identifier.split("/")[0] if "/" in security.identifier else security.identifier
+            source = BlockchainDataSource(
+                provider=provider,
+                assets=[asset],
+                metrics=security.fields,
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
+            df = source.load_data()
+
+        else:
+            raise ValueError(f"Unknown source type: {source_type}")
+
+        return df
+
+    def _merge_dataframes(
+        self,
+        security_dataframes: Dict[str, pd.DataFrame]
+    ) -> pd.DataFrame:
+        """
+        Merge multiple security DataFrames on Dates column.
+
+        Args:
+            security_dataframes: Dict mapping security ID to its DataFrame
+
+        Returns:
+            pd.DataFrame: Merged DataFrame with all securities
+        """
+        # Start with dates from first security
+        first_security = list(security_dataframes.values())[0]
+        merged_df = first_security[["Dates"]].copy()
+
+        # Merge each security's data
+        for security_id, df in security_dataframes.items():
+            # Merge on Dates
+            merged_df = merged_df.merge(
+                df,
+                on="Dates",
+                how=self.alignment_method,
+                suffixes=("", f"_{security_id}")
+            )
+
+        # Sort by date
+        merged_df = merged_df.sort_values("Dates").reset_index(drop=True)
+
+        return merged_df
+
+    def _fill_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fill missing values using specified method.
+
+        Args:
+            df: DataFrame with potential missing values
+
+        Returns:
+            pd.DataFrame: DataFrame with filled values
+        """
+        # Don't fill Dates column
+        data_cols = [c for c in df.columns if c != "Dates"]
+
+        if self.fill_method == "ffill":
+            # Forward fill
+            df[data_cols] = df[data_cols].fillna(method="ffill", limit=self.fill_limit)
+        elif self.fill_method == "bfill":
+            # Backward fill
+            df[data_cols] = df[data_cols].fillna(method="bfill", limit=self.fill_limit)
+
+        # Log remaining missing values
+        missing_count = df[data_cols].isna().sum().sum()
+        if missing_count > 0:
+            logger.warning(
+                f"{missing_count} missing values remain after filling "
+                f"(fill_limit={self.fill_limit})"
+            )
+
+        return df
+
+    def _validate_data(self, df: pd.DataFrame) -> None:
+        """
+        Validate merged data quality.
+
+        Args:
+            df: DataFrame to validate
+
+        Raises:
+            ValueError: If validation fails
+        """
+        issues = []
+
+        # Check for dates
+        if "Dates" not in df.columns:
+            issues.append("Missing 'Dates' column")
+
+        # Check for data columns
+        data_cols = [c for c in df.columns if c != "Dates"]
+        if len(data_cols) == 0:
+            issues.append("No data columns found")
+
+        # Check date order
+        if not df["Dates"].is_monotonic_increasing:
+            issues.append("Dates are not in ascending order")
+
+        # Check for duplicate dates
+        if df["Dates"].duplicated().any():
+            dup_count = df["Dates"].duplicated().sum()
+            issues.append(f"Found {dup_count} duplicate dates")
+
+        # Warn about high missing value percentage
+        for col in data_cols:
+            missing_pct = df[col].isna().sum() / len(df) * 100
+            if missing_pct > 50:
+                logger.warning(
+                    f"Column '{col}' has {missing_pct:.1f}% missing values"
+                )
+
+        if issues:
+            error_msg = "Data validation failed:\n" + "\n".join(f"  - {issue}" for issue in issues)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info("Data validation passed")
+
+
+################################################################################
 # Data Source Factory
 ################################################################################
 
@@ -1016,6 +1428,7 @@ class DataSourceFactory:
             - crypto_ws: Crypto WebSocket (real-time)
             - crypto_agg: Multi-exchange aggregator
             - blockchain: Blockchain on-chain metrics
+            - mixed_portfolio: Mixed crypto + traditional securities
         """
         source_type = source_type.lower()
 
@@ -1029,6 +1442,8 @@ class DataSourceFactory:
             return BloombergExcelDataSource(**kwargs)
         elif source_type == "bloomberg_hybrid":
             return HybridBloombergDataSource(**kwargs)
+        elif source_type == "mixed_portfolio":
+            return MixedPortfolioDataSource(**kwargs)
         elif source_type == "crypto":
             from _crypto_data_sources import CryptoExchangeDataSource
             return CryptoExchangeDataSource(**kwargs)
@@ -1045,7 +1460,7 @@ class DataSourceFactory:
             raise ValueError(
                 f"Unknown data source type: {source_type}. "
                 f"Supported types: 'excel', 'csv', 'bloomberg', 'bloomberg_excel', "
-                f"'bloomberg_hybrid', 'crypto', 'crypto_ws', 'crypto_agg', 'blockchain'"
+                f"'bloomberg_hybrid', 'mixed_portfolio', 'crypto', 'crypto_ws', 'crypto_agg', 'blockchain'"
             )
 
 
