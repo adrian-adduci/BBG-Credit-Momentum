@@ -19,6 +19,7 @@ from tabulate import tabulate
 # Import new indicator modules
 from indicators.stochastic import StochasticIndicators
 from indicators.momentum import MomentumIndicators
+from indicators.cross_asset import CrossAssetIndicators, identify_crypto_credit_columns
 
 path = pathlib.Path(__file__).parent.absolute()
 logger = logging.getLogger("_preprocess_xlsx")
@@ -72,6 +73,7 @@ class _preprocess_xlsx:
         momentum_X_days=[5, 10, 15],
         momentum_Y_days=30,
         crypto_features=False,
+        cross_asset_features=False,
     ):
 
         logger.info(f" Preprocessing, using XLSX: {xlsx_file} and target(s): {target_col}")
@@ -109,6 +111,7 @@ class _preprocess_xlsx:
         self.momentum_X_days = momentum_X_days
         self.momentum_Y_days = momentum_Y_days
         self.crypto_features = crypto_features
+        self.cross_asset_features = cross_asset_features
 
         self._add_custom_features()
 
@@ -237,6 +240,10 @@ class _preprocess_xlsx:
         # Add crypto-specific technical indicators if enabled
         if self.crypto_features:
             self._add_crypto_features()
+
+        # Add cross-asset features if enabled (for mixed portfolios)
+        if self.cross_asset_features:
+            self._add_cross_asset_features()
 
     def _add_momentum(self, momentum_list, momentum_X_days, momentum_Y_days):
         """
@@ -605,6 +612,62 @@ class _preprocess_xlsx:
         volatility = returns.rolling(window=window).std() * np.sqrt(252)
 
         return volatility
+
+    def _add_cross_asset_features(self):
+        """
+        Add cross-asset features for mixed crypto + credit portfolios.
+
+        This method calculates relationships between crypto and traditional
+        securities including:
+        - Rolling correlations
+        - Regime detection (risk-on/risk-off)
+        - Momentum divergence
+        - Flight-to-quality indicators
+        - Volatility ratios
+
+        These features are critical for analyzing mixed portfolios where
+        crypto and credit markets may have different dynamics.
+        """
+        logger.info(" Adding cross-asset features for mixed portfolio analysis")
+
+        # Automatically identify crypto and credit columns
+        crypto_cols, credit_cols = identify_crypto_credit_columns(self.df)
+
+        if not crypto_cols or not credit_cols:
+            logger.warning(
+                " Cross-asset features requested but could not identify both "
+                f"crypto ({len(crypto_cols)}) and credit ({len(credit_cols)}) columns. "
+                "Skipping cross-asset feature engineering."
+            )
+            return
+
+        logger.info(f" Found {len(crypto_cols)} crypto columns and {len(credit_cols)} credit columns")
+        logger.info(f" Crypto columns: {crypto_cols}")
+        logger.info(f" Credit columns: {credit_cols}")
+
+        # Initialize cross-asset calculator
+        cross_asset_calc = CrossAssetIndicators(self.df)
+
+        # Add all cross-asset features
+        try:
+            self.df = cross_asset_calc.add_all_cross_asset_features(
+                crypto_cols=crypto_cols,
+                credit_cols=credit_cols,
+                correlation_windows=[20, 60, 120],
+                momentum_window=20
+            )
+
+            # Get summary of added features
+            summary = cross_asset_calc.get_feature_summary()
+            if not summary.empty:
+                logger.info(f" Successfully added {len(summary)} cross-asset features")
+                logger.debug(f"\nCross-Asset Feature Summary:\n{summary}")
+            else:
+                logger.warning(" No cross-asset features were added")
+
+        except Exception as e:
+            logger.error(f" Failed to add cross-asset features: {str(e)}")
+            raise
 
     # Add column to df with net change from day to dh in future
     def _change_over_days(self, dh=None):

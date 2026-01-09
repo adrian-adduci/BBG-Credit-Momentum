@@ -190,6 +190,75 @@ class Config:
             "sequential": bool(self.get("model.sequential", default=False)),
         }
 
+    def get_bloomberg_config(self) -> Dict[str, Any]:
+        """
+        Get Bloomberg API configuration.
+
+        Returns:
+            Dict with Bloomberg API settings including:
+            - securities: List of Bloomberg tickers
+            - fields: List of fields to retrieve
+            - start_date: Start date (as string)
+            - end_date: End date (as string)
+            - host: API host
+            - port: API port
+            - timeout: Connection timeout
+            - max_retries: Maximum retry attempts
+            - excel_fallback: Path to Excel fallback file
+
+        Example:
+            >>> config.get_bloomberg_config()
+            {
+                'securities': ['LF98TRUU Index', 'LUACTRUU Index'],
+                'fields': ['OAS', 'PX_LAST'],
+                'start_date': '2020-01-01',
+                'end_date': '2020-12-31',
+                'host': 'localhost',
+                'port': 8194,
+                'timeout': 30000,
+                'max_retries': 3,
+                'excel_fallback': 'data/bloomberg_export.xlsx'
+            }
+        """
+        from datetime import datetime
+
+        # Get securities list
+        securities = self.get("data_source.bloomberg.securities", default=[
+            "LF98TRUU Index",
+            "LUACTRUU Index"
+        ])
+
+        # Get fields list
+        fields = self.get("data_source.bloomberg.fields", default=["OAS", "PX_LAST"])
+
+        # Get date range
+        start_date = self.get("data_source.bloomberg.start_date", default="2020-01-01")
+        end_date = self.get("data_source.bloomberg.end_date", default="2020-12-31")
+
+        # Get connection settings
+        host = self.get("data_source.bloomberg.host", default="localhost")
+        port = int(self.get("data_source.bloomberg.port", default=8194))
+        timeout = int(self.get("data_source.bloomberg.timeout", default=30000))
+        max_retries = int(self.get("data_source.bloomberg.max_retries", default=3))
+
+        # Get fallback settings
+        excel_fallback = self.get(
+            "data_source.bloomberg.excel_fallback",
+            default="data/bloomberg_export.xlsx"
+        )
+
+        return {
+            "securities": securities,
+            "fields": fields,
+            "start_date": start_date,
+            "end_date": end_date,
+            "host": host,
+            "port": port,
+            "timeout": timeout,
+            "max_retries": max_retries,
+            "excel_fallback": excel_fallback,
+        }
+
     def set_numexpr_threads(self) -> None:
         """Set NUMEXPR_MAX_THREADS environment variable."""
         threads = str(self.get("performance.numexpr_threads", default=16))

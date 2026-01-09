@@ -572,6 +572,307 @@ async def delete_model(model_id: str):
 
 
 ################################################################################
+# Mixed Portfolio Endpoints (Crypto + Credit)
+################################################################################
+
+class MixedPortfolioTrainRequest(BaseModel):
+    """Request model for training with mixed crypto + credit portfolio."""
+
+    # Crypto securities
+    crypto_exchange: Optional[str] = Field(None, description="Crypto exchange (binance, coinbase)")
+    crypto_symbols: Optional[List[str]] = Field(None, description="Crypto trading pairs")
+    crypto_timeframe: str = Field("1h", description="Crypto data timeframe")
+
+    # Bloomberg/Credit securities
+    bloomberg_securities: Optional[List[str]] = Field(None, description="Bloomberg securities (e.g., LF98TRUU Index)")
+    bloomberg_fields: List[str] = Field(["OAS"], description="Bloomberg fields to fetch")
+    bloomberg_source: str = Field("excel", description="Bloomberg data source: 'api', 'excel', or 'hybrid'")
+    bloomberg_excel_path: Optional[str] = Field(None, description="Path to Bloomberg Excel export")
+
+    # Common parameters
+    start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="End date (YYYY-MM-DD)")
+    target_column: str = Field(..., description="Target column to predict")
+    model_type: str = Field("XGBoost", description="Model type")
+
+    # Feature engineering
+    crypto_features: bool = Field(True, description="Enable crypto technical indicators")
+    cross_asset_features: bool = Field(True, description="Enable cross-asset features")
+    momentum_windows: List[int] = Field([5, 10, 15], description="Momentum windows")
+    momentum_baseline: int = Field(30, description="Momentum baseline")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "crypto_exchange": "binance",
+                "crypto_symbols": ["BTC/USDT", "ETH/USDT"],
+                "crypto_timeframe": "1h",
+                "bloomberg_securities": ["LF98TRUU Index"],
+                "bloomberg_fields": ["OAS", "DTS"],
+                "bloomberg_source": "excel",
+                "bloomberg_excel_path": "data/bloomberg_export.xlsx",
+                "start_date": "2024-01-01",
+                "target_column": "BTC_USDT_close",
+                "model_type": "XGBoost",
+                "crypto_features": True,
+                "cross_asset_features": True
+            }
+        }
+
+
+class CrossAssetAnalysisResponse(BaseModel):
+    """Response model for cross-asset analysis."""
+    success: bool
+    correlations: Dict[str, float]
+    regime: str
+    divergence_signals: Dict[str, Any]
+    flight_to_quality: float
+    timestamp: str
+
+
+@app.post("/api/mixed/train", response_model=TrainResponse)
+async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
+    """
+    Train model with mixed crypto + credit portfolio.
+
+    This endpoint supports unified analysis of cryptocurrency and traditional
+    credit securities in a single model. It:
+
+    1. Loads data from multiple sources (crypto exchanges, Bloomberg API/Excel)
+    2. Aligns data across different market hours (24/7 crypto vs weekday credit)
+    3. Adds cross-asset features (correlations, regime detection, divergences)
+    4. Trains unified ML model
+
+    Returns:
+        Model ID, metrics, and feature importance including cross-asset features
+    """
+    try:
+        start_time = datetime.now()
+        logger.info(f"Mixed portfolio training: {request.crypto_symbols} + {request.bloomberg_securities}")
+
+        from _data_sources import MixedPortfolioDataSource, BloombergAPIDataSource, BloombergExcelDataSource, HybridBloombergDataSource
+
+        # Parse dates
+        start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
+        end_date = (
+            datetime.strptime(request.end_date, "%Y-%m-%d")
+            if request.end_date
+            else datetime.now()
+        )
+
+        # Build list of data sources
+        sources = []
+
+        # Add crypto sources
+        if request.crypto_symbols and request.crypto_exchange:
+            crypto_source = DataSourceFactory.create(
+                "crypto",
+                exchange_id=request.crypto_exchange,
+                symbols=request.crypto_symbols,
+                timeframe=request.crypto_timeframe,
+                start_date=start_date,
+                end_date=end_date
+            )
+            sources.append(crypto_source)
+            logger.info(f"Added crypto source: {request.crypto_exchange} with {len(request.crypto_symbols)} symbols")
+
+        # Add Bloomberg sources
+        if request.bloomberg_securities:
+            if request.bloomberg_source == "api":
+                bloomberg_source = BloombergAPIDataSource(
+                    securities=request.bloomberg_securities,
+                    fields=request.bloomberg_fields,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+            elif request.bloomberg_source == "excel":
+                if not request.bloomberg_excel_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="bloomberg_excel_path required when bloomberg_source='excel'"
+                    )
+                bloomberg_source = BloombergExcelDataSource(
+                    file_path=request.bloomberg_excel_path
+                )
+            elif request.bloomberg_source == "hybrid":
+                if not request.bloomberg_excel_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="bloomberg_excel_path required for hybrid mode fallback"
+                    )
+                bloomberg_source = HybridBloombergDataSource(
+                    securities=request.bloomberg_securities,
+                    fields=request.bloomberg_fields,
+                    start_date=start_date,
+                    end_date=end_date,
+                    excel_fallback_path=request.bloomberg_excel_path
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid bloomberg_source: {request.bloomberg_source}"
+                )
+
+            sources.append(bloomberg_source)
+            logger.info(f"Added Bloomberg source: {request.bloomberg_source}")
+
+        if not sources:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one data source (crypto or Bloomberg) must be specified"
+            )
+
+        # Load and merge data
+        mixed_source = MixedPortfolioDataSource(
+            sources=sources,
+            alignment='outer',  # Include all dates from all sources
+            fill_method='ffill',
+            fill_limit=5
+        )
+        df = mixed_source.load_data()
+        logger.info(f"Loaded mixed portfolio data: {len(df)} rows, {len(df.columns)} columns")
+
+        # Preprocess with cross-asset features
+        momentum_list = []
+        if request.crypto_symbols:
+            momentum_list.extend([f"{sym.replace('/', '_')}_close" for sym in request.crypto_symbols])
+        if request.bloomberg_securities:
+            # Assume bloomberg securities have OAS field
+            momentum_list.extend([f"{sec.replace(' ', '_')}_OAS" for sec in request.bloomberg_securities])
+
+        pipeline = _preprocessing._preprocess_xlsx(
+            xlsx_file=df,
+            target_col=request.target_column,
+            momentum_list=momentum_list,
+            momentum_X_days=request.momentum_windows,
+            momentum_Y_days=request.momentum_baseline,
+            crypto_features=request.crypto_features,
+            cross_asset_features=request.cross_asset_features  # Enable cross-asset features
+        )
+        logger.info("Preprocessing complete with cross-asset features")
+
+        # Train model
+        model = _models._build_model(
+            pipeline=pipeline,
+            model_name=request.model_type
+        )
+        logger.info(f"{request.model_type} training complete")
+
+        # Get metrics
+        mae, mse, rmse = model._return_mean_error_metrics()
+
+        # Get feature importance
+        feature_importance = None
+        try:
+            model.predictive_power(forecast_range=30)
+            feature_importance = model._return_features_of_importance(forecast_day=30)
+        except Exception as e:
+            logger.warning(f"Feature importance calculation failed: {e}")
+
+        # Generate model ID
+        model_id = f"mixed_{request.model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        MODELS[model_id] = {
+            "model": model,
+            "pipeline": pipeline,
+            "config": request.dict(),
+            "trained_at": datetime.now().isoformat(),
+            "type": "mixed_portfolio"
+        }
+
+        training_time = (datetime.now() - start_time).total_seconds()
+
+        return TrainResponse(
+            success=True,
+            model_id=model_id,
+            metrics={"mae": mae, "mse": mse, "rmse": rmse},
+            feature_importance=feature_importance,
+            training_time=training_time,
+            data_points=len(df)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Mixed portfolio training failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mixed/analysis/{model_id}", response_model=CrossAssetAnalysisResponse)
+async def get_cross_asset_analysis(model_id: str):
+    """
+    Get cross-asset analysis for a trained mixed portfolio model.
+
+    Returns real-time cross-asset indicators including:
+    - Crypto-credit correlations
+    - Current market regime (risk-on/risk-off)
+    - Divergence signals
+    - Flight-to-quality indicators
+
+    Args:
+        model_id: ID of trained mixed portfolio model
+
+    Returns:
+        Cross-asset analysis metrics
+    """
+    if model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+
+    model_info = MODELS[model_id]
+
+    if model_info.get("type") != "mixed_portfolio":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model {model_id} is not a mixed portfolio model"
+        )
+
+    try:
+        # Get the processed dataframe
+        pipeline = model_info["pipeline"]
+        df = pipeline._return_dataframe()
+
+        # Extract cross-asset features (most recent values)
+        latest_data = df.iloc[-1]
+
+        # Find correlation columns
+        corr_cols = [col for col in df.columns if col.startswith('corr_')]
+        correlations = {col: float(latest_data[col]) for col in corr_cols if pd.notna(latest_data[col])}
+
+        # Find regime columns
+        regime_cols = [col for col in df.columns if 'regime' in col.lower()]
+        current_regime = "neutral"
+        if regime_cols:
+            regime_val = latest_data[regime_cols[0]]
+            if regime_val > 0.5:
+                current_regime = "risk-on"
+            elif regime_val < -0.5:
+                current_regime = "risk-off"
+
+        # Find divergence signals
+        divergence_cols = [col for col in df.columns if 'divergence_signal' in col]
+        divergence_signals = {
+            col: bool(latest_data[col]) for col in divergence_cols if pd.notna(latest_data[col])
+        }
+
+        # Flight to quality
+        ftq = 0.0
+        if 'ftq_indicator' in df.columns:
+            ftq = float(latest_data['ftq_indicator']) if pd.notna(latest_data['ftq_indicator']) else 0.0
+
+        return CrossAssetAnalysisResponse(
+            success=True,
+            correlations=correlations,
+            regime=current_regime,
+            divergence_signals=divergence_signals,
+            flight_to_quality=ftq,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Cross-asset analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+################################################################################
 # WebSocket for Real-Time Signals (Template)
 ################################################################################
 
