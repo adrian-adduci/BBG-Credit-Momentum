@@ -142,9 +142,35 @@ class _preprocess_xlsx:
 
         self._add_custom_features()
 
+        # Drop entirely-empty columns BEFORE filtering rows.
+        #
+        # _add_custom_features() can emit several hundred indicator columns.
+        # An indicator that cannot warm up on a short series returns all-NaN,
+        # and the row-wise dropna() below would then delete every row --
+        # amplifying one unusable column into an empty dataset, which used to
+        # surface far downstream as an opaque "0 test rows" error.
+        all_nan_cols = [col for col in self.df.columns if self.df[col].isna().all()]
+        if all_nan_cols:
+            logger.warning(
+                " Dropping %d all-NaN column(s) before row filtering: %s",
+                len(all_nan_cols),
+                ", ".join(str(col) for col in all_nan_cols),
+            )
+            self.df = self.df.drop(columns=all_nan_cols)
+
+        rows_before = len(self.df)
         self.complete_data = (
             self.df.dropna().copy().sort_values("Dates").reset_index(drop=True)
         )
+
+        if self.complete_data.empty:
+            raise ValueError(
+                f"Preprocessing produced no rows: every one of the {rows_before} "
+                f"input rows had a NaN in at least one of "
+                f"{len(self.df.columns)} columns. The series is most likely too "
+                f"short for the requested indicators, which need up to ~31 "
+                f"periods to warm up."
+            )
 
         # Build the supervised problem so that the label for row t is the
         # target at t + horizon. Previously X and Y came from the same row,
