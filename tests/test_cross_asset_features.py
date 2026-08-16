@@ -44,7 +44,18 @@ class TestCrossAssetIndicators:
         indicators = CrossAssetIndicators(sample_data)
         assert indicators.df is not None
         assert len(indicators.df) == len(sample_data)
-        assert not indicators.df.equals(sample_data)  # Should be a copy
+
+        # Must be a defensive copy: a distinct object holding equal values.
+        # The previous assertion was `not indicators.df.equals(sample_data)`,
+        # but .equals() compares values rather than identity, so a *correct*
+        # copy makes it True and the negation fails. Identity is the property
+        # actually under test.
+        assert indicators.df is not sample_data
+        assert indicators.df.equals(sample_data)
+
+        # Mutating the copy must not touch the caller's frame.
+        indicators.df.iloc[0, 0] = None
+        assert sample_data.iloc[0, 0] is not None
 
     def test_rolling_correlation(self, sample_data):
         """Test rolling correlation calculation."""
