@@ -18,6 +18,7 @@ A Streamlit application that analyzes economic data to identify momentum drivers
 - [Configuration](#configuration)
 - [Data Sources](#data-sources)
 - [Model Details](#model-details)
+- [Forecasting Methodology](#forecasting-methodology)
 - [Project Structure](#project-structure)
 - [Recent Improvements](#recent-improvements)
 - [Contributing](#contributing)
@@ -34,6 +35,9 @@ A Streamlit application that analyzes economic data to identify momentum drivers
 - **Feature Importance Analysis** - Identify key momentum drivers over time
 - **Predictive Power Scoring** - Rank features by predictive capability
 - **Model Performance Metrics** - MAE, MSE, RMSE with visualizations
+- **Walk-Forward Backtesting** - Expanding-window evaluation scored against a
+  random-walk baseline, so error metrics are always reported as skill relative
+  to doing nothing
 
 ### Data Sources
 - **Excel Files** (Bloomberg exports) - Fully supported
@@ -70,9 +74,17 @@ The dashboard will open in your browser at `http://localhost:8501`.
 
 ### Prerequisites
 
-- **Python 3.8+** (tested on 3.8, 3.9, 3.10, 3.11)
+- **Python 3.11** (verified on 3.11.15). The pinned `numpy==1.26.4` /
+  `pandas==2.2.3` have no wheels for Python 3.13+, so newer interpreters will
+  attempt slow source builds and usually fail.
 - **pip** package manager
 - **Bloomberg Terminal** (optional, for API integration)
+
+> **Known dependency conflict:** `ppscore==1.3.0` declares `pandas<2`, which
+> contradicts the pinned `pandas==2.2.3`. The constraint is stale — ppscore
+> works correctly against pandas 2.2.3 — but a strict resolver will refuse the
+> file or silently downgrade pandas. `ppscore` also imports `pkg_resources`,
+> removed in setuptools 81+. See the install steps below for the workaround.
 
 ### Step 1: Clone Repository
 
@@ -98,8 +110,15 @@ source venv/bin/activate
 ### Step 3: Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+# ppscore must be installed separately: its legacy setup.py needs
+# pkg_resources, which setuptools 81+ no longer ships.
+grep -v '^ppscore' requirements.txt > /tmp/req.txt
+pip install -r /tmp/req.txt "setuptools<81" pytest httpx
+pip install --no-build-isolation ppscore==1.3.0
 ```
+
+`pytest` and `httpx` are needed to run the test suite (`httpx` backs
+`fastapi.testclient`) and are not listed in `requirements.txt`.
 
 **Dependencies installed** (all updated to latest stable versions):
 - `streamlit==1.39.0` - Web interface
@@ -171,7 +190,9 @@ pipeline = _preprocess_xlsx(
     target_col="LF98TRUU_Index_OAS",
     momentum_list=["LF98TRUU_Index_OAS", "LUACTRUU_Index_OAS"],
     momentum_X_days=[5, 10, 15],
-    momentum_Y_days=30
+    momentum_Y_days=30,
+    horizon=5,             # label = target at t+5; the target itself is not a feature
+    target_lags=[1, 2, 5], # opt in to past values of the target
 )
 
 # Train model
@@ -348,7 +369,8 @@ See [CHANGES.md](CHANGES.md) for detailed Bloomberg API integration guide.
 ### Feature Engineering
 
 **Momentum Features:**
-Automatically creates rolling average features:
+Creates a normalised momentum ratio — the short-window average expressed as a
+deviation from the long-window baseline:
 
 ```
 momentum = (short_term_avg - long_term_avg) / long_term_avg
@@ -356,7 +378,6 @@ momentum = (short_term_avg - long_term_avg) / long_term_avg
 
 - **Short-term windows**: 5, 10, 15 days (configurable)
 - **Long-term baseline**: 30 days (configurable)
-- **Formula**: `(X_day_avg - Y_day_avg) / Y_day_avg`
 
 **Example:**
 - Input column: `LF98TRUU_Index_OAS`
@@ -364,6 +385,69 @@ momentum = (short_term_avg - long_term_avg) / long_term_avg
   - `LF98TRUU_Index_OAS_5day_rolling_average`
   - `LF98TRUU_Index_OAS_10day_rolling_average`
   - `LF98TRUU_Index_OAS_15day_rolling_average`
+
+> **Naming caveat:** these columns are named `..._rolling_average` but hold the
+> momentum *ratio* above, not a rolling mean. The names are kept for backward
+> compatibility with existing configs and saved models.
+
+---
+
+## Forecasting Methodology
+
+Time series models are unusually easy to fool. This project builds the
+supervised problem through `forecasting.make_supervised()`, which enforces
+three rules that earlier versions of this code violated:
+
+1. **Labels lead features.** The label for the row observed at time *t* is the
+   target at *t + horizon*, via `shift(-horizon)`. A positive shift returns the
+   value from *h* days **ago**, which trains the model to predict the past.
+2. **The raw target is never a feature.** Past values are legitimate predictors
+   but only through explicit, strictly positive `target_lags`. A lag of zero is
+   rejected.
+3. **Splits are chronological.** `time_ordered_split()` offers no `shuffle`
+   argument, and every walk-forward fold drops `horizon` rows from the end of
+   its training window so the last training labels cannot reach into the test
+   window.
+
+### Backtesting
+
+Error metrics mean nothing without a benchmark. `backtest.py` runs an
+expanding-window walk-forward evaluation and scores every fold against the
+random walk — *"tomorrow's spread is today's spread"*:
+
+```bash
+python backtest.py data/Economic_Data_2020_08_01.xlsx \
+    --target LF98TRUU_Index_OAS --mode both
+```
+
+`skill = 1 - model_RMSE / naive_RMSE`. Positive means the model beat the naive
+forecast; zero or negative means it did not.
+
+**Results on the bundled dataset** (1,995 daily observations, 2012-08 to
+2020-07, 5 folds, target lags 1/2/5):
+
+| Horizon | Model RMSE | Naive RMSE | Skill | Verdict |
+|--------:|-----------:|-----------:|------:|---------|
+| 1d  | 0.1131 | 0.0959 | −0.180 | No skill |
+| 5d  | 0.3494 | 0.2787 | −0.254 | No skill |
+| 10d | 0.5197 | 0.4138 | −0.256 | No skill |
+| 30d | 0.7778 | 0.7135 | −0.090 | No skill |
+
+**On this dataset the model does not beat a random walk at any horizon.** That
+is the honest result, and it is reported here rather than hidden. For contrast,
+the original contemporaneous setup — same-row labels with the target left in the
+feature matrix — reported a test R² of **0.955**, which measured leakage rather
+than forecasting ability. The corrected 30-day setup scores **−0.033**.
+
+### Levels vs changes
+
+`--mode level` predicts the future level; `--mode change` (the default)
+predicts the future *difference*. Gradient-boosted trees average training leaf
+values and therefore cannot extrapolate a drifting level at all, so a level
+model loses to the naive forecast for reasons unrelated to market
+predictability. On the bundled data this framing alone moves 1-day skill from
+−3.00 to −0.18. Differencing first is the standard remedy and the reason
+`change` is the default.
 
 ### Evaluation Metrics
 
@@ -381,6 +465,9 @@ momentum = (short_term_avg - long_term_avg) / long_term_avg
 ```
 BBG-Credit-Momentum/
 ├── webapp.py                  # Main Streamlit application
+├── backtest.py                # Walk-forward backtest CLI vs random walk
+├── forecasting.py             # Leakage-safe supervised-problem primitives
+├── logging_setup.py           # Shared logger factory (creates logs/ on demand)
 ├── _preprocessing.py          # Data preprocessing pipeline
 ├── _models.py                 # Model training and analysis
 ├── _data_sources.py          # Data source abstraction layer
@@ -456,10 +543,10 @@ pip install -r requirements.txt
 ```
 
 **"Unable to open logs/_main.log"**
-```bash
-# Solution: Create logs directory
-mkdir logs
-```
+
+Fixed. `logging_setup.get_logger()` creates the directory on demand and falls
+back to a null handler if the filesystem is read-only, so logging can no longer
+stop the application from starting.
 
 **Streamlit shows "Please select a file"**
 ```bash
@@ -509,9 +596,17 @@ mae, mse, rmse = model._return_mean_error_metrics()
 print(f"RMSE: {rmse:.4f}")
 ```
 
-### Unit Tests (Recommended)
+### Unit Tests
 
-Coming soon! Contributions welcome.
+```bash
+python -m pytest tests/ -q
+```
+
+The suite covers the indicator library, the cross-asset features, the API
+surface, and — most importantly — the leakage regressions described under
+[Forecasting Methodology](#forecasting-methodology). `tests/test_forecasting.py`
+and `tests/test_pipeline_leakage.py` exist specifically so the defects fixed
+there cannot come back silently.
 
 ---
 
