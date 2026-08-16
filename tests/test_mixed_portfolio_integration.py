@@ -20,37 +20,79 @@ from _data_sources import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Known-unimplemented API surface.
+#
+# The tests below were written against a MixedPortfolioDataSource API that was
+# never built. They landed in 0f93e5c ("Complete phases 4-6") and have never
+# passed. Two concrete mismatches:
+#
+#   1. They patch '_data_sources.CryptoExchangeDataSource', but that class
+#      lives in _crypto_data_sources.py and _data_sources.py does not import
+#      it, so mock.patch cannot resolve the attribute.
+#
+#   2. They construct MixedPortfolioDataSource(sources=[...], alignment=...).
+#      The real signature is (securities=..., alignment_method=...), and it
+#      takes security *definitions* rather than data-source objects -- a
+#      different design, not a renamed argument.
+#
+# Marked xfail(strict=True) rather than deleted so the gap stays visible and
+# so the marker fails loudly if the API is ever implemented.
+# ---------------------------------------------------------------------------
+UNIMPLEMENTED_MIXED_API = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "MixedPortfolioDataSource(sources=..., alignment=...) and "
+        "_data_sources.CryptoExchangeDataSource do not exist; tests were "
+        "written against an unbuilt API"
+    ),
+)
+
+
 class TestMixedPortfolioIntegration:
     """Integration tests for mixed portfolio workflow."""
+
+    # Both fixtures span the same 300 calendar days.
+    #
+    # The crypto fixture previously used freq='H' for 100 periods -- about four
+    # days -- while the credit fixture used freq='D' for 100 days. Merging them
+    # on date left roughly five overlapping rows, far fewer than the 31-period
+    # warmup the stochastic-RSI and ROC indicators need. Those indicators then
+    # emitted all-NaN columns, and the unconditional dropna() in
+    # _preprocess_xlsx reduced a 379-column frame to zero rows.
+    PERIODS = 300
 
     @pytest.fixture
     def mock_crypto_data(self):
         """Create mock crypto exchange data."""
-        dates = pd.date_range(start='2024-01-01', periods=100, freq='H')
+        n = self.PERIODS
+        dates = pd.date_range(start='2024-01-01', periods=n, freq='D')
         return pd.DataFrame({
             'timestamp': dates,
-            'BTC_USDT_close': np.random.randn(100).cumsum() + 50000,
-            'BTC_USDT_high': np.random.randn(100).cumsum() + 50100,
-            'BTC_USDT_low': np.random.randn(100).cumsum() + 49900,
-            'BTC_USDT_volume': np.random.rand(100) * 1000,
-            'ETH_USDT_close': np.random.randn(100).cumsum() + 3000,
-            'ETH_USDT_high': np.random.randn(100).cumsum() + 3010,
-            'ETH_USDT_low': np.random.randn(100).cumsum() + 2990,
-            'ETH_USDT_volume': np.random.rand(100) * 5000,
+            'BTC_USDT_close': np.random.randn(n).cumsum() + 50000,
+            'BTC_USDT_high': np.random.randn(n).cumsum() + 50100,
+            'BTC_USDT_low': np.random.randn(n).cumsum() + 49900,
+            'BTC_USDT_volume': np.random.rand(n) * 1000,
+            'ETH_USDT_close': np.random.randn(n).cumsum() + 3000,
+            'ETH_USDT_high': np.random.randn(n).cumsum() + 3010,
+            'ETH_USDT_low': np.random.randn(n).cumsum() + 2990,
+            'ETH_USDT_volume': np.random.rand(n) * 5000,
         }).set_index('timestamp')
 
     @pytest.fixture
     def mock_bloomberg_data(self):
         """Create mock Bloomberg credit data."""
-        dates = pd.date_range(start='2024-01-01', periods=100, freq='D')
+        n = self.PERIODS
+        dates = pd.date_range(start='2024-01-01', periods=n, freq='D')
         return pd.DataFrame({
             'Dates': dates,
-            'LF98TRUU_Index_OAS': np.random.randn(100).cumsum() + 100,
-            'LF98TRUU_Index_DTS': np.random.rand(100) * 2 + 5,
-            'LUACTRUU_Index_OAS': np.random.randn(100).cumsum() + 120,
-            'LUACTRUU_Index_DTS': np.random.rand(100) * 2 + 4.5,
+            'LF98TRUU_Index_OAS': np.random.randn(n).cumsum() + 100,
+            'LF98TRUU_Index_DTS': np.random.rand(n) * 2 + 5,
+            'LUACTRUU_Index_OAS': np.random.randn(n).cumsum() + 120,
+            'LUACTRUU_Index_DTS': np.random.rand(n) * 2 + 4.5,
         })
 
+    @UNIMPLEMENTED_MIXED_API
     def test_mixed_portfolio_data_loading(self, mock_crypto_data, mock_bloomberg_data, tmp_path):
         """Test loading data from multiple sources and merging."""
         # Save Bloomberg data to temporary Excel file
@@ -97,7 +139,14 @@ class TestMixedPortfolioIntegration:
             right_on='Dates',
             how='inner'
         )
-        combined = combined.rename(columns={'timestamp': 'Dates'})
+        # Drop the right-hand join key before renaming: merging on
+        # left_on='timestamp'/right_on='Dates' keeps BOTH columns, so the
+        # rename produced two columns named 'Dates'. Excel round-tripping
+        # then de-duplicated them into 'Dates' and 'Dates.1', and the
+        # leftover datetime64 column reached XGBoost as a feature.
+        combined = combined.drop(columns=['Dates']).rename(
+            columns={'timestamp': 'Dates'}
+        )
 
         # Save to temp file
         test_file = tmp_path / "mixed_test.xlsx"
@@ -133,7 +182,14 @@ class TestMixedPortfolioIntegration:
             right_on='Dates',
             how='inner'
         )
-        combined = combined.rename(columns={'timestamp': 'Dates'})
+        # Drop the right-hand join key before renaming: merging on
+        # left_on='timestamp'/right_on='Dates' keeps BOTH columns, so the
+        # rename produced two columns named 'Dates'. Excel round-tripping
+        # then de-duplicated them into 'Dates' and 'Dates.1', and the
+        # leftover datetime64 column reached XGBoost as a feature.
+        combined = combined.drop(columns=['Dates']).rename(
+            columns={'timestamp': 'Dates'}
+        )
 
         # Save to temp file
         test_file = tmp_path / "mixed_model_test.xlsx"
@@ -169,7 +225,14 @@ class TestMixedPortfolioIntegration:
             right_on='Dates',
             how='inner'
         )
-        combined = combined.rename(columns={'timestamp': 'Dates'})
+        # Drop the right-hand join key before renaming: merging on
+        # left_on='timestamp'/right_on='Dates' keeps BOTH columns, so the
+        # rename produced two columns named 'Dates'. Excel round-tripping
+        # then de-duplicated them into 'Dates' and 'Dates.1', and the
+        # leftover datetime64 column reached XGBoost as a feature.
+        combined = combined.drop(columns=['Dates']).rename(
+            columns={'timestamp': 'Dates'}
+        )
 
         # Save to temp file
         test_file = tmp_path / "feature_importance_test.xlsx"
@@ -229,6 +292,7 @@ class TestDataAlignment:
             'LF98TRUU_Index_OAS': np.random.rand(len(dates)) * 10 + 100,
         })
 
+    @UNIMPLEMENTED_MIXED_API
     def test_outer_join_alignment(self, crypto_24_7_data, credit_weekday_data, tmp_path):
         """Test outer join keeps all dates from both sources."""
         bloomberg_file = tmp_path / "credit_weekday.xlsx"
@@ -250,6 +314,7 @@ class TestDataAlignment:
             # Should include weekend dates from crypto (with NaN for credit)
             assert len(df) >= len(credit_weekday_data)
 
+    @UNIMPLEMENTED_MIXED_API
     def test_inner_join_alignment(self, crypto_24_7_data, credit_weekday_data, tmp_path):
         """Test inner join keeps only overlapping dates."""
         bloomberg_file = tmp_path / "credit_weekday.xlsx"
@@ -279,11 +344,13 @@ class TestDataAlignment:
 class TestErrorHandling:
     """Test error handling in mixed portfolio workflow."""
 
+    @UNIMPLEMENTED_MIXED_API
     def test_no_data_sources(self):
         """Test error when no data sources provided."""
         with pytest.raises(ValueError, match="At least one data source"):
             mixed_source = MixedPortfolioDataSource(sources=[])
 
+    @UNIMPLEMENTED_MIXED_API
     def test_incompatible_data_types(self, tmp_path):
         """Test handling of incompatible data from different sources."""
         # Create Bloomberg data with different structure
