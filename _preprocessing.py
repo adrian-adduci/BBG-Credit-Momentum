@@ -13,21 +13,18 @@ import pathlib
 import numpy as np
 import pandas as pd
 from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
 from tabulate import tabulate
+
+from forecasting import make_supervised, time_ordered_split
 
 # Import new indicator modules
 from indicators.stochastic import StochasticIndicators
 from indicators.momentum import MomentumIndicators
 from indicators.cross_asset import CrossAssetIndicators, identify_crypto_credit_columns
+from logging_setup import get_logger
 
 path = pathlib.Path(__file__).parent.absolute()
-logger = logging.getLogger("_preprocess_xlsx")
-logger.setLevel(logging.INFO)
-handler = logging.FileHandler(path / "logs" / "_preprocess.log")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger = get_logger("_preprocess_xlsx", "_preprocess.log")
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 # Pre-Processing of XLSX Into Pandas Dataframe
@@ -39,17 +36,27 @@ class _preprocess_xlsx:
     Preprocesses Excel data for machine learning model training.
 
     Loads Bloomberg economic data from Excel files, creates momentum features,
-    splits data into train/test sets, and prepares features for model training.
+    splits data chronologically into train/test sets, and prepares features for
+    model training.
+
+    The label for the row observed at time t is the target at t + ``horizon``,
+    and the raw target is never a feature. Splits are always chronological.
 
     Args:
         xlsx_file: Path to the Excel file or file-like object
         target_col: Name of the column to use as the target variable
         forecast_list: List of forecast horizons in days (default: [1, 3, 7, 15, 30])
         momentum_list: List of column names to calculate momentum features for
-        split_percentage: Percentage of data to use for testing (default: 0.20)
-        sequential: Whether to shuffle data before splitting (default: False)
+        split_percentage: Fraction of the most recent data held out (default: 0.20)
+        sequential: Deprecated and ignored. Previously wired to
+            ``train_test_split(shuffle=...)``, so ``sequential=True`` shuffled
+            the series and trained on the future.
         momentum_X_days: Short-term windows for momentum calculation (default: [5, 10, 15])
         momentum_Y_days: Long-term baseline window for momentum (default: 30)
+        horizon: Periods ahead to forecast (default: 1)
+        target_lags: Optional strictly positive lags of the target to add as
+            features, e.g. ``[1, 5]``. A lag of 0 is rejected because it is the
+            contemporaneous target.
 
     Raises:
         FileNotFoundError: If xlsx_file doesn't exist
@@ -66,31 +73,50 @@ class _preprocess_xlsx:
         self,
         xlsx_file,
         target_col,
-        forecast_list=[1, 3, 7, 15, 30],
-        momentum_list=[],
+        forecast_list=None,
+        momentum_list=None,
         split_percentage=0.20,
-        sequential=False,
-        momentum_X_days=[5, 10, 15],
+        sequential=None,
+        momentum_X_days=None,
         momentum_Y_days=30,
         crypto_features=False,
         cross_asset_features=False,
+        horizon=1,
+        target_lags=None,
     ):
+        forecast_list = [1, 3, 7, 15, 30] if forecast_list is None else forecast_list
+        momentum_list = [] if momentum_list is None else momentum_list
+        momentum_X_days = [5, 10, 15] if momentum_X_days is None else momentum_X_days
+
+        if sequential is not None:
+            logger.warning(
+                " The 'sequential' argument is deprecated and ignored. It was "
+                "wired directly to train_test_split(shuffle=...), so passing "
+                "sequential=True produced a SHUFFLED split that trained on the "
+                "future. Splits are now always chronological."
+            )
 
         logger.info(f" Preprocessing, using XLSX: {xlsx_file} and target(s): {target_col}")
 
-        # Validate Excel file exists
-        if not pathlib.Path(xlsx_file).is_file():
-            error_msg = f"Excel file not found: {xlsx_file}"
-            logger.error(error_msg)
-            raise FileNotFoundError(error_msg)
+        # Accept a path, an already-loaded DataFrame (api.py) or a file-like
+        # upload buffer (webapp.py). The previous unconditional
+        # pathlib.Path(xlsx_file).is_file() raised TypeError for the latter
+        # two, which are the only inputs the real entry points ever pass.
+        if isinstance(xlsx_file, pd.DataFrame):
+            self.df = xlsx_file.copy()
+        else:
+            if isinstance(xlsx_file, (str, os.PathLike)):
+                if not pathlib.Path(xlsx_file).is_file():
+                    error_msg = f"Excel file not found: {xlsx_file}"
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
 
-        # Load Excel file with error handling
-        try:
-            self.df = pd.read_excel(xlsx_file)
-        except Exception as e:
-            error_msg = f"Failed to read Excel file: {str(e)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            try:
+                self.df = pd.read_excel(xlsx_file)
+            except Exception as e:
+                error_msg = f"Failed to read Excel input: {str(e)}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
         # Validate required columns
         if "Dates" not in self.df.columns:
@@ -107,26 +133,44 @@ class _preprocess_xlsx:
         self.forecast_list = forecast_list
         self.momentum_list = momentum_list
         self.split_percentage = split_percentage
-        self.sequential = sequential
         self.momentum_X_days = momentum_X_days
         self.momentum_Y_days = momentum_Y_days
         self.crypto_features = crypto_features
         self.cross_asset_features = cross_asset_features
+        self.horizon = horizon
+        self.target_lags = target_lags
 
         self._add_custom_features()
 
-        self.complete_data = self.df.dropna().copy()
+        self.complete_data = (
+            self.df.dropna().copy().sort_values("Dates").reset_index(drop=True)
+        )
 
-        self.X = self.complete_data.drop([self.target_col, "Dates"], axis=1)
+        # Build the supervised problem so that the label for row t is the
+        # target at t + horizon. Previously X and Y came from the same row,
+        # which makes the task a nowcast rather than a forecast.
+        self.X, self.Y, self.dates = make_supervised(
+            self.complete_data,
+            target_col=self.target_col,
+            horizon=self.horizon,
+            date_col="Dates",
+            target_lags=self.target_lags,
+        )
 
         self.feature_cols = self.X.columns
 
-        self.Y = self.complete_data[self.target_col]
+        logger.debug(" Splitting Test and Training Data chronologically")
 
-        logger.debug(" Splitting Test and Training Data")
+        split = time_ordered_split(
+            self.X, self.Y, self.dates, test_size=self.split_percentage
+        )
+        self.X_train, self.X_test = split.X_train, split.X_test
+        self.Y_train, self.Y_test = split.y_train, split.y_test
+        self.train_dates, self.test_dates = split.train_dates, split.test_dates
 
-        self.X_train, self.X_test, self.Y_train, self.Y_test = train_test_split(
-            self.X, self.Y, test_size=self.split_percentage, shuffle=self.sequential
+        logger.info(
+            f" Train: {len(self.X_train)} rows to {self.train_dates.max()}; "
+            f"Test: {len(self.X_test)} rows from {self.test_dates.min()}"
         )
 
         self._find_entropy_of_feature(self.Y)
@@ -708,14 +752,20 @@ class _preprocess_xlsx:
             forecast_name = "{0}_{1}D_Ahead_Actual".format(self.target_col, dh)
             # logger.info("Adding {0} ".format(forecast_name))
 
-            temp_data[forecast_name] = temp_data[self.target_col].shift(dh)
+            # shift(-dh) reaches FORWARD in time. The original shift(+dh)
+            # returned the value from dh days ago while calling it an
+            # "Ahead_Actual", so every horizon was trained against the past.
+            temp_data[forecast_name] = temp_data[self.target_col].shift(-dh)
             temp_data = temp_data.dropna()
             Y_dict[dh] = temp_data[[forecast_name]]
 
             data_dict[dh] = temp_data
 
-            temp_data = temp_data.drop([forecast_name, "Dates"], axis=1)
-            X_dict[dh] = temp_data
+            # The raw target must not be a feature: predicting the target from
+            # itself is what made the importance rankings meaningless.
+            X_dict[dh] = temp_data.drop(
+                [forecast_name, "Dates", self.target_col], axis=1
+            )
 
         return data_dict, X_dict, Y_dict
 
@@ -739,6 +789,21 @@ class _preprocess_xlsx:
 
     def _return_test_and_train_data(self):
         return self.X_train, self.X_test, self.Y_train, self.Y_test
+
+    def _return_train_dates(self):
+        """Observation timestamps of the training rows."""
+        return self.train_dates
+
+    def _return_test_dates(self):
+        """Observation timestamps of the held-out rows (all after training)."""
+        return self.test_dates
+
+    def _return_feature_frame(self):
+        """The full feature matrix and its dates, aligned to the labels."""
+        return self.X, self.dates
+
+    def _return_horizon(self):
+        return self.horizon
 
     def _return_Y_encoded(self):
         return self.Y_encoded, self.Y_train_encoded, self.Y_test_encoded

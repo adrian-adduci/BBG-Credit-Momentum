@@ -307,8 +307,7 @@ def example_5_integration_with_analysis():
             momentum_X_days=[5, 10, 15],
             momentum_Y_days=30,
             forecast_list=[1, 3, 7, 15, 30],
-            split_percentage=0.20,
-            sequential=False
+            split_percentage=0.20
         )
 
         print(f"✓ Created {preprocessor.X_train.shape[1]} features")

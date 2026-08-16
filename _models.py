@@ -5,7 +5,6 @@
 import logging
 import os
 import pathlib
-import random
 import warnings
 
 import matplotlib.pyplot as plt
@@ -17,6 +16,7 @@ import pandas as pd
 import ppscore as pps
 import seaborn as sns
 from sklearn import linear_model, metrics
+from sklearn.base import clone
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
@@ -26,16 +26,14 @@ from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures
 from sklearn.tree import DecisionTreeRegressor
 from xgboost import XGBRegressor
 
+from forecasting import DEFAULT_RANDOM_STATE
+from logging_setup import get_logger
+
 path = pathlib.Path(__file__).parent.absolute()
 
 # Debug and logger
 warnings.filterwarnings("ignore")
-logger = logging.getLogger("_model")
-logger.setLevel(logging.INFO)
-handler = logging.FileHandler(path / "logs" / "_model.log")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger = get_logger("_model", "_model.log")
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 # Fit and Predict a Chosen Model
@@ -78,7 +76,7 @@ class _build_model:
         pipeline,
         model_name="XGBoost",
         estimators=1000,
-        random_state=random.seed(),
+        random_state=DEFAULT_RANDOM_STATE,
         max_forecast=30,
     ):
 
@@ -120,7 +118,12 @@ class _build_model:
             "KNeighborsRegressor": KNeighborsRegressor(n_neighbors=2),
         }
         self.model = self.models_available.get(model_name)
-        tss = TimeSeriesSplit(n_splits=self.timeseries_splits).split(self.X_df)
+        if self.model is None:
+            raise ValueError(
+                f"Unknown model {model_name!r}. Available: "
+                f"{sorted(self.models_available)}"
+            )
+        tss = TimeSeriesSplit(n_splits=self.timeseries_splits)
 
         logger.info(f" Fitting model: \n {self.model}")
         self.model.fit(self.X_train, self.Y_train)
@@ -129,17 +132,21 @@ class _build_model:
         logger.info(f" Predicting with model: \n {self.model}")
         self.model_preds = self.model.predict(self.X_test)
 
-        self.final_data = self.pipeline._return_complete_data()
-        self.final_data[
-            (self.pipeline._return_target_col()) + "_Forecast"
-        ] = self.model.predict(self.final_data[self.pipeline._return_feature_names()])
-        self.final_data = self.final_data.sort_values(
-            "Dates", ascending=False
-        ).set_index("Dates")
+        # Forecasts are produced from the aligned feature frame, whose rows are
+        # exactly those with an observable future value.
+        X_all, _ = self.pipeline._return_feature_frame()
+        final = self.pipeline._return_complete_data().loc[X_all.index].copy()
+        forecast_col = f"{self.pipeline._return_target_col()}_Forecast"
+        final[forecast_col] = self.model.predict(X_all)
+        self.final_data = final.sort_values("Dates", ascending=False).set_index("Dates")
 
-        self.scores = cross_val_score(self.model, self.X_df, self.Y_df, cv=tss)
+        # cross_val_score returns R^2 for regressors, not accuracy. Scored on
+        # the training portion only so the held-out set stays untouched.
+        self.scores = cross_val_score(
+            clone(self.model), self.X_train, self.Y_train, cv=tss
+        )
         logger.info(
-            " Mean cross-validataion Accuracy: %0.2f (+/- %0.3f)"
+            " Mean cross-validation R^2 (train only): %0.2f (+/- %0.3f)"
             % (self.scores.mean(), self.scores.std())
         )
         self.forecast_horizon = max(pipeline.forecast_list)
@@ -215,12 +222,16 @@ class _build_model:
 
             X_feature_cols = X_data[day].columns
 
-            # Scale and add back to df with column names
-            X_scaled = self.scaler.fit_transform(X_data[day])
-            X_scaled = pd.DataFrame(X_scaled, columns=X_feature_cols)
+            # No MinMaxScaler here: the supported importance models are all
+            # tree-based and scale-invariant, and fitting a scaler across the
+            # full dataset leaked test-set range into the transform.
+            X_day = X_data[day]
 
-            logger.info(f" Fitting Scaled Model: Day {day}")
-            model_scaled = self.model.fit(X_scaled, Y_data[day])
+            logger.info(f" Fitting importance model: Day {day}")
+            # clone() gives a fresh unfitted estimator. Calling self.model.fit
+            # here refit the very model whose metrics had already been
+            # reported, so results changed depending on call order.
+            model_scaled = clone(self.model).fit(X_day, Y_data[day])
             importances = model_scaled.feature_importances_
 
             feats = {}
@@ -312,27 +323,11 @@ class _build_model:
             path / "_img" / "feats_importance_over_time.png", bbox_inches="tight"
         )
 
-    # Classification only, n/a for regression models
-    def _return_roc_and_precision_recall_curves(self):
-        sns.set_palette(sns.color_palette("rocket"))
-        pipeline_target = self.pipeline._return_target_col()
-        accuracy = metrics.accuracy_score(self.Y_test_encoded, self.model_preds)
-        fig_roc, axes = plt.subplots(nrows=1, ncols=2, figsize=(15, 7))
-        roc_plot = plot_roc_curve(
-            self.model, self.X_test, self.Y_test_encoded, ax=axes[0, 0]
-        )
-        axes[0, 0].title.set_text(
-            "{} Prediction ROC [Accuracy: {}]".format(pipeline_target, accuracy)
-        )
-        pr_plot = plot_precision_recall_curve(
-            self.model, self.X_test, self.Y_test_encoded, ax=axes[1, 0]
-        )
-        axes[1, 0].title.set_text(
-            "{} Prediction Precision-Recall Curve".format(pipeline_target)
-        )
-        fig_roc.tight_layout(pad=3.0)
-        fig_roc.show()
-        return fig_roc
+    # NOTE: _return_roc_and_precision_recall_curves was removed. It called
+    # plot_roc_curve / plot_precision_recall_curve, which were never imported
+    # and were deleted from scikit-learn in 1.2, and it indexed a 1-D axes
+    # array as axes[0, 0]. It could never have run. For classification use
+    # sklearn.metrics.RocCurveDisplay.from_estimator instead.
 
     def _return_mean_error_metrics(self):
         """
@@ -355,14 +350,11 @@ class _build_model:
         logger.info(f"MSE: {MSE:.4}")
         logger.info(f"RMSE: {RMSE:.4}")
 
-        errors_MAE = list()
-        errors_RMSE = list()
         num_predictions = [int(num) for num in range(1, len(self.model_preds) + 1)]
 
-        pipeline_target = self.pipeline._return_target_col()
-
-        # Vectorized error calculation
-        errors = ((np.array(self.Y_test) - self.model_preds) * 2).tolist()
+        # Squared, not doubled. The original computed `residual * 2` and
+        # labelled the series "MSE", which also let it go negative.
+        errors = self._return_squared_errors().tolist()
 
         err_MSE_df = pd.DataFrame(
             list(zip(num_predictions, errors)), columns=["Prediction", "MSE"]
@@ -373,6 +365,11 @@ class _build_model:
             "Mean Squared Error"
         )
         return MAE, MSE, RMSE
+
+    def _return_squared_errors(self):
+        """Per-prediction squared residuals on the held-out set."""
+        residuals = np.asarray(self.Y_test) - np.asarray(self.model_preds)
+        return residuals ** 2
 
     def _return_preds(self):
         return self.model_preds

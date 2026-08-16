@@ -260,8 +260,7 @@ def train_unified_model(df, target_col):
         momentum_X_days=[5, 10, 15],
         momentum_Y_days=30,
         forecast_list=[1, 3, 7, 15, 30],
-        split_percentage=0.20,
-        sequential=False
+        split_percentage=0.20
     )
 
     # Train model
