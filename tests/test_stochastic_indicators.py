@@ -23,6 +23,28 @@ from indicators.stochastic import (
 )
 
 
+def make_ohlc(periods=100, seed=42):
+    """Generate a valid OHLC series where low <= close <= high on every bar.
+
+    The previous fixtures drew high, low and close as three *independent*
+    random walks and then only swapped high/low when they crossed. Nothing
+    constrained close to sit inside the bar, so close exceeded high on 88 of
+    100 bars.
+
+    That matters because bounded indicators are only bounded on well-formed
+    bars. Williams %R is -100 * (high_n - close) / (high_n - low_n): if close
+    can exceed the rolling high, the numerator goes negative and %R rises
+    above 0, breaching its documented [-100, 0] range. The indicator was
+    correct; the data was impossible.
+    """
+    rng = np.random.default_rng(seed)
+    close = pd.Series(100 + rng.standard_normal(periods).cumsum())
+    # Each bar extends above and below its close by a non-negative amount.
+    high = close + np.abs(rng.standard_normal(periods)) * 2
+    low = close - np.abs(rng.standard_normal(periods)) * 2
+    return high, low, close
+
+
 class TestStochasticOscillator(unittest.TestCase):
     """Test Stochastic Oscillator calculation."""
 
@@ -31,15 +53,7 @@ class TestStochasticOscillator(unittest.TestCase):
         self.calculator = StochasticIndicators(debug=False)
 
         # Create realistic price data (100 periods)
-        np.random.seed(42)
-        self.high = pd.Series(100 + np.random.randn(100).cumsum() + 5)
-        self.low = pd.Series(100 + np.random.randn(100).cumsum() - 5)
-        self.close = pd.Series(100 + np.random.randn(100).cumsum())
-
-        # Ensure high >= low
-        for i in range(len(self.high)):
-            if self.high.iloc[i] < self.low.iloc[i]:
-                self.high.iloc[i], self.low.iloc[i] = self.low.iloc[i], self.high.iloc[i]
+        self.high, self.low, self.close = make_ohlc()
 
     def test_typical_use_case(self):
         """Test 1: Typical use case with valid data."""
@@ -230,15 +244,7 @@ class TestWilliamsR(unittest.TestCase):
     def setUp(self):
         """Set up test data for each test."""
         self.calculator = StochasticIndicators(debug=False)
-        np.random.seed(42)
-        self.high = pd.Series(100 + np.random.randn(100).cumsum() + 5)
-        self.low = pd.Series(100 + np.random.randn(100).cumsum() - 5)
-        self.close = pd.Series(100 + np.random.randn(100).cumsum())
-
-        # Ensure high >= low
-        for i in range(len(self.high)):
-            if self.high.iloc[i] < self.low.iloc[i]:
-                self.high.iloc[i], self.low.iloc[i] = self.low.iloc[i], self.high.iloc[i]
+        self.high, self.low, self.close = make_ohlc()
 
     def test_typical_use_case(self):
         """Test 1: Typical use case with valid data."""
@@ -285,11 +291,14 @@ class TestWilliamsR(unittest.TestCase):
         williams_valid = williams.dropna()
         stoch_k_valid = stoch_k.loc[williams_valid.index]
 
-        # Williams %R + Stochastic %K should equal approximately 0 (allowing for rounding)
-        difference = (williams_valid + stoch_k_valid - 100).abs()
+        # %R + 100 == %K, so %R - %K + 100 should be ~0.
+        # The previous assertion computed (%R + %K - 100), which does not
+        # follow from the identity stated just above it and is only zero when
+        # %K happens to equal 100.
+        difference = (williams_valid - stoch_k_valid + 100).abs()
         self.assertTrue(
             (difference < 0.01).all(),
-            "Williams %R should be inverse of Stochastic %K"
+            "Williams %R should equal Stochastic %K - 100"
         )
 
     def test_invalid_input_different_lengths(self):
