@@ -19,13 +19,10 @@ import pathlib
 import pandas as pd
 import numpy as np
 
-logger = logging.getLogger("_data_sources")
-logger.setLevel(logging.INFO)
+from logging_setup import get_logger
+
 path = pathlib.Path(__file__).parent.absolute()
-handler = logging.FileHandler(path / "logs" / "_data_sources.log")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger = get_logger("_data_sources", "_data_sources.log")
 
 ################################################################################
 # Security Definition Classes

@@ -34,19 +34,12 @@ import time
 
 from _data_sources import DataSource
 
-# Configure logging
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
+# Configure logging. Note this deliberately does NOT call basicConfig: a
+# library module reconfiguring the root logger silently overrides whatever
+# logging the importing application has already set up.
+from logging_setup import get_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_dir / "_crypto_data_sources.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, "_crypto_data_sources.log")
 
 
 class CryptoExchangeDataSource(DataSource):

@@ -10,7 +10,9 @@ import pathlib
 import streamlit as st
 from streamlit import session_state
 
-st.set_option("deprecation.showfileUploaderEncoding", False)
+# NOTE: st.set_option("deprecation.showfileUploaderEncoding", False) was
+# removed. That config key no longer exists and raises StreamlitAPIException
+# on import, so the app could not start.
 
 import _models
 import _preprocessing
@@ -27,12 +29,9 @@ st.sidebar.image(
 pd.set_option("display.max_columns", None)
 
 
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
-handler = logging.FileHandler(path / "logs" / "_main.log")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-log.addHandler(handler)
+from logging_setup import get_logger
+
+log = get_logger(__name__, "_main.log", level=logging.DEBUG)
 
 ################################################################################
 #  Helper Functions

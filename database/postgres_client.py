@@ -34,13 +34,13 @@ from psycopg2.extras import RealDictCursor
 import pandas as pd
 
 # Set up structured logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.absolute()))
+from logging_setup import get_logger
+
 path = pathlib.Path(__file__).parent.parent.absolute()
-handler = logging.FileHandler(path / "logs" / "_postgres_client.log")
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger = get_logger(__name__, "_postgres_client.log")
 
 
 class PostgreSQLClient:
