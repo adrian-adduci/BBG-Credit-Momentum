@@ -22,9 +22,9 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from _data_sources import Security, MixedPortfolioDataSource
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from data_sources import Security, MixedPortfolioDataSource
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 
 
 def create_mixed_portfolio():
@@ -234,7 +234,7 @@ def train_unified_model(df, target_col):
         target_col: Target column for prediction
 
     Returns:
-        _build_model: Trained model object
+        MomentumModel: Trained model object
     """
     print("\n" + "=" * 80)
     print(f"Training Unified Model (Target: {target_col})")
@@ -253,7 +253,7 @@ def train_unified_model(df, target_col):
         print(f"  ... and {len(momentum_cols) - 5} more")
 
     # Preprocess data
-    preprocessor = _preprocess_xlsx(
+    preprocessor = BloombergPreprocessor(
         data=df,
         target_col=target_col,
         momentum_list=momentum_cols,
@@ -264,7 +264,7 @@ def train_unified_model(df, target_col):
     )
 
     # Train model
-    model = _build_model(
+    model = MomentumModel(
         preprocessor=preprocessor,
         model_name="XGBoost",
         estimators=1000

@@ -26,13 +26,13 @@ sys.path.insert(0, '..')
 from datetime import datetime
 import pandas as pd
 
-from _data_sources import (
+from data_sources import (
     BloombergAPIDataSource,
     BloombergAPIError,
     BloombergTerminalNotRunning
 )
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 
 
 def example_1_basic_connection():
@@ -300,7 +300,7 @@ def example_5_integration_with_analysis():
         # Step 2: Preprocess data
         print("\nStep 2: Preprocessing and feature engineering...")
 
-        preprocessor = _preprocess_xlsx(
+        preprocessor = BloombergPreprocessor(
             data=df,
             target_col="LF98TRUU_Index_OAS",
             momentum_list=["LF98TRUU_Index_OAS", "LUACTRUU_Index_OAS"],
@@ -315,7 +315,7 @@ def example_5_integration_with_analysis():
         # Step 3: Train model
         print("\nStep 3: Training XGBoost model...")
 
-        model = _build_model(
+        model = MomentumModel(
             preprocessor=preprocessor,
             model_name="XGBoost",
             estimators=500  # Reduced for demo
@@ -326,7 +326,7 @@ def example_5_integration_with_analysis():
         # Step 4: Generate predictions
         print("\nStep 4: Generating predictions...")
 
-        predictions = model._return_final_data()
+        predictions = model.get_final_data()
 
         print("\nPredictions (last 5 rows):")
         print(predictions.tail())

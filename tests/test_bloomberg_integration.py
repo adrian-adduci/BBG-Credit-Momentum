@@ -16,7 +16,7 @@ import numpy as np
 # Import Bloomberg data sources
 import sys
 sys.path.insert(0, '..')
-from _data_sources import (
+from data_sources import (
     BloombergAPIDataSource,
     BloombergExcelDataSource,
     HybridBloombergDataSource,
@@ -67,7 +67,7 @@ class TestBloombergAPIDataSource(unittest.TestCase):
 
             self.assertIn("blpapi", str(context.exception))
 
-    @patch('_data_sources.BloombergAPIDataSource._import_blpapi')
+    @patch('data_sources.BloombergAPIDataSource._import_blpapi')
     def test_create_session_terminal_not_running(self, mock_import):
         """Test error when Bloomberg Terminal is not running."""
         # Mock blpapi module
@@ -87,7 +87,7 @@ class TestBloombergAPIDataSource(unittest.TestCase):
         with self.assertRaises(BloombergTerminalNotRunning):
             source._create_session()
 
-    @patch('_data_sources.BloombergAPIDataSource._import_blpapi')
+    @patch('data_sources.BloombergAPIDataSource._import_blpapi')
     def test_create_session_service_failed(self, mock_import):
         """Test error when Bloomberg service cannot be opened."""
         # Mock blpapi module
@@ -108,7 +108,7 @@ class TestBloombergAPIDataSource(unittest.TestCase):
         with self.assertRaises(BloombergAuthenticationError):
             source._create_session()
 
-    @patch('_data_sources.BloombergAPIDataSource._import_blpapi')
+    @patch('data_sources.BloombergAPIDataSource._import_blpapi')
     def test_create_session_success(self, mock_import):
         """Test successful Bloomberg session creation."""
         # Mock blpapi module
@@ -274,7 +274,7 @@ class TestHybridBloombergDataSource(unittest.TestCase):
         self.end_date = datetime(2020, 12, 31)
         self.excel_path = "test_bloomberg.xlsx"
 
-    @patch('_data_sources.BloombergAPIDataSource.load_data')
+    @patch('data_sources.BloombergAPIDataSource.load_data')
     def test_api_first_success(self, mock_api_load):
         """Test successful API load in API-first mode."""
         # Mock successful API load
@@ -297,8 +297,8 @@ class TestHybridBloombergDataSource(unittest.TestCase):
         self.assertEqual(len(df), 5)
         self.assertTrue(mock_api_load.called)
 
-    @patch('_data_sources.BloombergExcelDataSource.load_data')
-    @patch('_data_sources.BloombergAPIDataSource.load_data')
+    @patch('data_sources.BloombergExcelDataSource.load_data')
+    @patch('data_sources.BloombergAPIDataSource.load_data')
     def test_api_first_fallback_to_excel(self, mock_api_load, mock_excel_load):
         """Test fallback to Excel when API fails."""
         # Mock API failure
@@ -325,8 +325,8 @@ class TestHybridBloombergDataSource(unittest.TestCase):
         self.assertTrue(mock_api_load.called)
         self.assertTrue(mock_excel_load.called)
 
-    @patch('_data_sources.BloombergExcelDataSource.load_data')
-    @patch('_data_sources.BloombergAPIDataSource.load_data')
+    @patch('data_sources.BloombergExcelDataSource.load_data')
+    @patch('data_sources.BloombergAPIDataSource.load_data')
     def test_both_sources_fail(self, mock_api_load, mock_excel_load):
         """Test error when both API and Excel fail."""
         # Mock both failures
@@ -347,7 +347,7 @@ class TestHybridBloombergDataSource(unittest.TestCase):
 
         self.assertIn("Both Bloomberg API and Excel fallback failed", str(context.exception))
 
-    @patch('_data_sources.BloombergExcelDataSource.load_data')
+    @patch('data_sources.BloombergExcelDataSource.load_data')
     def test_excel_first_success(self, mock_excel_load):
         """Test successful Excel load in Excel-first mode."""
         # Mock successful Excel load
@@ -374,10 +374,10 @@ class TestHybridBloombergDataSource(unittest.TestCase):
 class TestBloombergConfiguration(unittest.TestCase):
     """Test Bloomberg configuration management."""
 
-    @patch('_config.Config.get')
+    @patch('config.Config.get')
     def test_get_bloomberg_config(self, mock_get):
         """Test getting Bloomberg configuration."""
-        from _config import Config
+        from config import Config
 
         # Mock config values
         def mock_get_side_effect(key, default=None):

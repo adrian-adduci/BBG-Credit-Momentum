@@ -1,5 +1,5 @@
 """
-Tests for the inputs ``_preprocess_xlsx`` must accept.
+Tests for the inputs ``BloombergPreprocessor`` must accept.
 
 The file-existence guard added during the 2025 refactor called
 ``pathlib.Path(xlsx_file).is_file()`` unconditionally. That raises TypeError
@@ -19,7 +19,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-import _preprocessing
+import preprocessing
 
 
 def _frame(n=120, seed=5):
@@ -48,17 +48,17 @@ class TestAcceptedInputs(unittest.TestCase):
         path = self.root / "econ.xlsx"
         self.frame.to_excel(path, index=False)
 
-        pipeline = _preprocessing._preprocess_xlsx(path, target_col=self.TARGET)
+        pipeline = preprocessing.BloombergPreprocessor(path, target_col=self.TARGET)
 
-        self.assertGreater(len(pipeline._return_dataframe()), 0)
+        self.assertGreater(len(pipeline.get_dataframe()), 0)
 
     def test_accepts_an_in_memory_dataframe(self):
         # api.py passes a DataFrame directly.
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             self.frame, target_col=self.TARGET
         )
 
-        self.assertGreater(len(pipeline._return_dataframe()), 0)
+        self.assertGreater(len(pipeline.get_dataframe()), 0)
 
     def test_accepts_a_file_like_buffer(self):
         # webapp.py passes a Streamlit upload buffer.
@@ -66,19 +66,19 @@ class TestAcceptedInputs(unittest.TestCase):
         self.frame.to_excel(buffer, index=False)
         buffer.seek(0)
 
-        pipeline = _preprocessing._preprocess_xlsx(buffer, target_col=self.TARGET)
+        pipeline = preprocessing.BloombergPreprocessor(buffer, target_col=self.TARGET)
 
-        self.assertGreater(len(pipeline._return_dataframe()), 0)
+        self.assertGreater(len(pipeline.get_dataframe()), 0)
 
     def test_missing_file_still_reports_a_clear_error(self):
         with self.assertRaises(FileNotFoundError):
-            _preprocessing._preprocess_xlsx(
+            preprocessing.BloombergPreprocessor(
                 self.root / "absent.xlsx", target_col=self.TARGET
             )
 
     def test_missing_target_column_still_reports_a_clear_error(self):
         with self.assertRaises(ValueError):
-            _preprocessing._preprocess_xlsx(self.frame, target_col="nope")
+            preprocessing.BloombergPreprocessor(self.frame, target_col="nope")
 
 
 if __name__ == "__main__":

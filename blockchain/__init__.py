@@ -7,7 +7,7 @@ Author: BBG-Credit-Momentum Team
 License: MIT
 """
 
-from .blockchain_provider import BlockchainDataSource, GlassnodeProvider, CoinMetricsProvider
+from .providers import BlockchainDataSource, GlassnodeProvider, CoinMetricsProvider
 
 __all__ = [
     "BlockchainDataSource",

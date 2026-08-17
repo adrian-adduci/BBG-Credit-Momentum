@@ -7,7 +7,7 @@ Shared logger factory.
 
 Modules used to attach a ``logging.FileHandler`` at import time pointing into a
 gitignored ``logs/`` directory, so a fresh clone raised FileNotFoundError on
-``import _models`` before any user code ran.
+``import models`` before any user code ran.
 
 ``get_logger`` creates the directory on demand and degrades to a null handler
 if the filesystem refuses. Logging is a diagnostic aid; it is never a reason

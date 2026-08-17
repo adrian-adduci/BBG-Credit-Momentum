@@ -1,6 +1,6 @@
 """Tests that plotting writes where the caller asks, not into the repository.
 
-_build_model wrote its charts to a hardcoded ``<repo>/_img/`` directory. That
+MomentumModel wrote its charts to a hardcoded ``<repo>/_img/`` directory. That
 is a tracked location, so simply running the test suite overwrote committed
 repository assets and left the working tree dirty -- and the overwritten
 charts were regenerated from whatever fixture data the tests happened to use.
@@ -12,7 +12,7 @@ License: MIT
 import pathlib
 import unittest
 
-import _models
+import models
 
 
 class TestPlotOutputDirectory(unittest.TestCase):
@@ -23,18 +23,18 @@ class TestPlotOutputDirectory(unittest.TestCase):
         fixture in conftest.py redirects DEFAULT_PLOT_DIR for the duration of
         the suite, so the runtime value here is a temporary directory.
         """
-        source = pathlib.Path(_models.__file__).read_text()
+        source = pathlib.Path(models.__file__).read_text()
 
         self.assertIn('DEFAULT_PLOT_DIR = path / "_img"', source)
 
     def test_default_is_a_path(self):
-        self.assertIsInstance(_models.DEFAULT_PLOT_DIR, pathlib.Path)
+        self.assertIsInstance(models.DEFAULT_PLOT_DIR, pathlib.Path)
 
     def test_plot_dir_is_configurable(self):
         """Tests and callers can redirect chart output somewhere disposable."""
         import inspect
 
-        params = inspect.signature(_models._build_model.__init__).parameters
+        params = inspect.signature(models.MomentumModel.__init__).parameters
         self.assertIn("plot_dir", params)
         self.assertIsNone(
             params["plot_dir"].default,
@@ -46,13 +46,13 @@ class TestPlotOutputDirectory(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             target = pathlib.Path(tmp) / "charts"
-            resolved = _models._resolve_plot_dir(target)
+            resolved = models._resolve_plot_dir(target)
 
             self.assertEqual(resolved, target)
             self.assertTrue(resolved.is_dir())
 
     def test_resolve_plot_dir_falls_back_to_the_default(self):
-        self.assertEqual(_models._resolve_plot_dir(None), _models.DEFAULT_PLOT_DIR)
+        self.assertEqual(models._resolve_plot_dir(None), models.DEFAULT_PLOT_DIR)
 
 
 class TestNoHardcodedImgWrites(unittest.TestCase):
@@ -62,7 +62,7 @@ class TestNoHardcodedImgWrites(unittest.TestCase):
         A single DEFAULT_PLOT_DIR definition is fine -- it is the override
         point. What must not come back is `_img` appearing in a savefig call.
         """
-        source = pathlib.Path(_models.__file__).read_text().splitlines()
+        source = pathlib.Path(models.__file__).read_text().splitlines()
 
         offenders = [
             line.strip()
@@ -72,6 +72,6 @@ class TestNoHardcodedImgWrites(unittest.TestCase):
         self.assertEqual(offenders, [], f"savefig writes to a fixed path: {offenders}")
 
     def test_default_plot_dir_is_defined_exactly_once(self):
-        source = pathlib.Path(_models.__file__).read_text()
+        source = pathlib.Path(models.__file__).read_text()
 
         self.assertEqual(source.count('path / "_img"'), 1)

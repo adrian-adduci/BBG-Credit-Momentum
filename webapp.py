@@ -14,8 +14,8 @@ from streamlit import session_state
 # removed. That config key no longer exists and raises StreamlitAPIException
 # on import, so the app could not start.
 
-import _models
-import _preprocessing
+import models
+import preprocessing
 import pandas as pd
 import plotly.express as px
 from PIL import Image
@@ -67,17 +67,17 @@ def run_model(model_name):
     my_bar = st.progress(0)
     if "model" not in session_state:
         log.info(" Building the current model...")
-        session_state.model = _models._build_model(session_state.pipeline, model_name)
-        session_state.final_preds = session_state.model._return_final_data()
+        session_state.model = models.MomentumModel(session_state.pipeline, model_name)
+        session_state.final_preds = session_state.model.get_final_data()
     my_bar.progress(50)
-    session_state.model_results = session_state.model._return_preds()
+    session_state.model_results = session_state.model.get_preds()
     session_state.model.predictive_power()
     my_bar.progress(60)
-    session_state.model._feature_importance()
+    session_state.model.feature_importance()
     my_bar.progress(70)
-    session_state.model._feature_importance_over_time(forecast_range=30)
+    session_state.model.feature_importance_over_time(forecast_range=30)
     my_bar.progress(90)
-    session_state.metrics = session_state.model._return_mean_error_metrics()
+    session_state.metrics = session_state.model.get_mean_error_metrics()
     my_bar.progress(100)
     my_bar.progress(0)
 
@@ -142,14 +142,14 @@ if st.sidebar.button("Load Data "):
                 st.sidebar.error("Target feature cannot be empty")
                 my_bar.progress(0)
             else:
-                session_state.pipeline = _preprocessing._preprocess_xlsx(
+                session_state.pipeline = preprocessing.BloombergPreprocessor(
                     session_state.file_buffer,
                     session_state.target_feature.strip(),
                     momentum_list=session_state.momentum_list,
                 )
                 my_bar.progress(60)
 
-                session_state.data = session_state.pipeline._return_dataframe()
+                session_state.data = session_state.pipeline.get_dataframe()
 
                 my_bar.progress(80)
 
@@ -198,7 +198,7 @@ if st.sidebar.button("Train Model"):
         try:
             log.info(f" Training Model: {session_state.model_type}")
 
-            # _build_model and return it to sessions state
+            # MomentumModel and return it to sessions state
             run_model(session_state.model_type)
 
             if session_state.model_type == "XGBoost":

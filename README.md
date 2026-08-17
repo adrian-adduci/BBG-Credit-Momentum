@@ -183,11 +183,11 @@ nano .env
 ### Method 2: Python API
 
 ```python
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 
 # Load and preprocess data
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file="data/Economic_Data_2020_08_01.xlsx",
     target_col="LF98TRUU_Index_OAS",
     momentum_list=["LF98TRUU_Index_OAS", "LUACTRUU_Index_OAS"],
@@ -198,23 +198,23 @@ pipeline = _preprocess_xlsx(
 )
 
 # Train model
-model = _build_model(pipeline, model_name="XGBoost")
+model = MomentumModel(pipeline, model_name="XGBoost")
 
 # Get predictions and metrics
-predictions = model._return_preds()
-mae, mse, rmse = model._return_mean_error_metrics()
+predictions = model.get_preds()
+mae, mse, rmse = model.get_mean_error_metrics()
 
 # Analyze feature importance
 model.predictive_power(forecast_range=30)
-model._feature_importance(forecast_range=30)
-model._feature_importance_over_time(forecast_range=30)
+model.feature_importance(forecast_range=30)
+model.feature_importance_over_time(forecast_range=30)
 ```
 
 ### Method 3: Using Data Source Abstraction
 
 ```python
-from _data_sources import DataSourceFactory
-from _config import get_config
+from data_sources import DataSourceFactory
+from config import get_config
 
 # Load configuration
 config = get_config()
@@ -228,7 +228,7 @@ df = source.load_data()
 
 # Use with preprocessing pipeline
 preprocessing_config = config.get_preprocessing_config()
-pipeline = _preprocess_xlsx(df, **preprocessing_config)
+pipeline = BloombergPreprocessor(df, **preprocessing_config)
 ```
 
 ---
@@ -318,7 +318,7 @@ Dates          | LF98TRUU_Index_OAS | LUACTRUU_Index_OAS | ...
 ### CSV Files
 
 ```python
-from _data_sources import CSVDataSource
+from data_sources import CSVDataSource
 
 source = CSVDataSource(
     file_path="data/economic_data.csv",
@@ -335,7 +335,7 @@ pip install blpapi
 ```
 
 **Implementation:**
-1. Edit `_data_sources.py`
+1. Edit `data_sources.py`
 2. Complete the `BloombergAPIDataSource.load_data()` method
 3. Configure in `config.yaml`:
 
@@ -470,10 +470,10 @@ BBG-Credit-Momentum/
 ├── backtest.py                # Walk-forward backtest CLI vs random walk
 ├── forecasting.py             # Leakage-safe supervised-problem primitives
 ├── logging_setup.py           # Shared logger factory (creates logs/ on demand)
-├── _preprocessing.py          # Data preprocessing pipeline
-├── _models.py                 # Model training and analysis
-├── _data_sources.py          # Data source abstraction layer
-├── _config.py                # Configuration management
+├── preprocessing.py           # Data preprocessing pipeline
+├── models.py                  # Model training and analysis
+├── data_sources.py            # Securities and data-source abstraction
+├── config.py                  # Configuration management
 │
 ├── data/                     # Data files
 │   └── Economic_Data_2020_08_01.xlsx
@@ -509,13 +509,13 @@ BBG-Credit-Momentum/
 ## Example Outputs
 
 ### Historical Data & Forecasts
-![Historical Data](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/example_forecast.PNG)
+![Historical Data](_img/example_forecast.PNG)
 
 ### Feature Importance Over Time
-![Feature Importance Over Time](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/feats_importance_over_time.png)
+![Feature Importance Over Time](_img/feats_importance_over_time.png)
 
 ### Predictive Power Analysis
-![Predictive Power](https://github.com/adrian-adduci/Bloomberg_Predictive_Modelling/blob/3c1415df764e103f68a542d6cbb434d1b9b71661/_img/predictive_power.png)
+![Predictive Power](_img/predictive_power.png)
 
 
 ## Troubleshooting
@@ -582,19 +582,19 @@ streamlit run webapp.py
 
 ```python
 # Test preprocessing
-from _preprocessing import _preprocess_xlsx
+from preprocessing import BloombergPreprocessor
 
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     "data/Economic_Data_2020_08_01.xlsx",
     "LF98TRUU_Index_OAS"
 )
-print(f"Loaded {len(pipeline._return_dataframe())} rows")
+print(f"Loaded {len(pipeline.get_dataframe())} rows")
 
 # Test model training
-from _models import _build_model
+from models import MomentumModel
 
-model = _build_model(pipeline)
-mae, mse, rmse = model._return_mean_error_metrics()
+model = MomentumModel(pipeline)
+mae, mse, rmse = model.get_mean_error_metrics()
 print(f"RMSE: {rmse:.4f}")
 ```
 

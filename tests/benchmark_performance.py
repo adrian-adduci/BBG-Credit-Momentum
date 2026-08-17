@@ -18,8 +18,8 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import _preprocessing
-import _models
+import preprocessing
+import models
 from indicators.cross_asset import CrossAssetIndicators
 
 
@@ -102,7 +102,7 @@ class PerformanceBenchmark:
 
         start_time = time.time()
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=str(test_file),
             target_col=target_col,
             momentum_list=momentum_list,
@@ -112,7 +112,7 @@ class PerformanceBenchmark:
 
         elapsed_time = time.time() - start_time
 
-        processed_df = pipeline._return_dataframe()
+        processed_df = pipeline.get_dataframe()
 
         print(f"  Input rows: {len(df)}")
         print(f"  Output rows: {len(processed_df)}")
@@ -136,12 +136,12 @@ class PerformanceBenchmark:
 
         start_time = time.time()
 
-        model = _models._build_model(pipeline, model_name='XGBoost')
+        model = models.MomentumModel(pipeline, model_name='XGBoost')
 
         elapsed_time = time.time() - start_time
 
         # Get metrics
-        mae, mse, rmse = model._return_mean_error_metrics()
+        mae, mse, rmse = model.get_mean_error_metrics()
 
         print(f"  Model type: XGBoost")
         print(f"  Training time: {elapsed_time:.2f}s")
@@ -164,7 +164,7 @@ class PerformanceBenchmark:
 
         try:
             model.predictive_power(forecast_range=30)
-            importance = model._return_features_of_importance(forecast_day=30)
+            importance = model.get_features_of_importance(forecast_day=30)
 
             elapsed_time = time.time() - start_time
 

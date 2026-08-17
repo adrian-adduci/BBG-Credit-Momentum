@@ -68,3 +68,11 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Packaging build output
+*.egg-info/
+build/
+dist/

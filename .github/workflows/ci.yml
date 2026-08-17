@@ -36,7 +36,7 @@ jobs:
       # during the tests, so pin a headless backend rather than rely on
       # matplotlib inferring one.
       MPLBACKEND: Agg
-      # _models.py sets this at import time; keep it sane for a 2-core runner.
+      # models.py sets this at import time; keep it sane for a 2-core runner.
       NUMEXPR_MAX_THREADS: "2"
 
     steps:
@@ -100,7 +100,7 @@ jobs:
             echo "::error::logs/ is present in a fresh checkout; it must stay untracked"
             exit 1
           fi
-          python -c "import _models, _preprocessing, _data_sources, forecasting, backtest"
+          python -c "import models, preprocessing, data_sources, forecasting, backtest"
           test -d logs || (echo "::error::logs/ was not created on demand" && exit 1)
 
       - name: Run tests

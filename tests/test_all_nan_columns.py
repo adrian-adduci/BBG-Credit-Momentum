@@ -1,5 +1,5 @@
 """
-Regression tests for the all-NaN column guard in _preprocess_xlsx.
+Regression tests for the all-NaN column guard in BloombergPreprocessor.
 
 _add_custom_features() can generate several hundred indicator columns. An
 indicator that cannot warm up on a short series emits an all-NaN column, and
@@ -21,7 +21,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-import _preprocessing
+import preprocessing
 
 
 def _frame(n=120, seed=7):
@@ -55,7 +55,7 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         df["BROKEN_INDICATOR"] = np.nan
         path = self._write(df)
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
         )
 
@@ -70,7 +70,7 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         df["BROKEN_INDICATOR"] = np.nan
         path = self._write(df)
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
         )
 
@@ -83,7 +83,7 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         df["BROKEN_INDICATOR"] = np.nan
         path = self._write(df)
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
         )
 
@@ -96,7 +96,7 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         df["WARMUP_INDICATOR"] = [np.nan] * 30 + list(range(len(df) - 30))
         path = self._write(df)
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
         )
 
@@ -107,8 +107,8 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         df["BROKEN_INDICATOR"] = np.nan
         path = self._write(df)
 
-        with self.assertLogs("_preprocess_xlsx", level="WARNING") as captured:
-            _preprocessing._preprocess_xlsx(
+        with self.assertLogs("BloombergPreprocessor", level="WARNING") as captured:
+            preprocessing.BloombergPreprocessor(
                 path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
             )
 
@@ -126,7 +126,7 @@ class TestAllNaNColumnGuard(unittest.TestCase):
         path = self._write(df)
 
         with self.assertRaises(ValueError) as ctx:
-            _preprocessing._preprocess_xlsx(
+            preprocessing.BloombergPreprocessor(
                 path, target_col="LF98TRUU_Index_OAS", momentum_list=[]
             )
 

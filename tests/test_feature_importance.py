@@ -1,9 +1,9 @@
 """
-Tests for feature-importance reporting on _build_model.
+Tests for feature-importance reporting on MomentumModel.
 
 Two defects motivated these tests:
 
-1. ``_return_features_of_importance`` did not exist, yet ``api.py`` called it in
+1. ``get_features_of_importance`` did not exist, yet ``api.py`` called it in
    two endpoints. Both call sites wrap it in ``except Exception`` and log a
    warning, so every /api/train and /api/mixed/train response silently carried
    ``feature_importance: null`` instead of failing loudly.
@@ -25,8 +25,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-import _models
-import _preprocessing
+import models
+import preprocessing
 
 
 def _frame(n=200, seed=11):
@@ -56,10 +56,10 @@ class TestFeatureImportanceReporting(unittest.TestCase):
         cls._tmp.cleanup()
 
     def _model(self):
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             self.frame, target_col=self.TARGET, horizon=1
         )
-        return _models._build_model(
+        return models.MomentumModel(
             pipeline,
             model_name="XGBoost",
             estimators=25,
@@ -69,7 +69,7 @@ class TestFeatureImportanceReporting(unittest.TestCase):
     def test_features_of_importance_returns_a_feature_to_score_mapping(self):
         model = self._model()
 
-        importance = model._return_features_of_importance(forecast_day=3)
+        importance = model.get_features_of_importance(forecast_day=3)
 
         self.assertIsInstance(importance, dict)
         self.assertGreater(len(importance), 0)
@@ -80,23 +80,23 @@ class TestFeatureImportanceReporting(unittest.TestCase):
     def test_features_of_importance_are_ranked_highest_first(self):
         model = self._model()
 
-        scores = list(model._return_features_of_importance(forecast_day=3).values())
+        scores = list(model.get_features_of_importance(forecast_day=3).values())
 
         self.assertEqual(scores, sorted(scores, reverse=True))
 
     def test_features_of_importance_never_reports_the_raw_target(self):
         model = self._model()
 
-        importance = model._return_features_of_importance(forecast_day=3)
+        importance = model.get_features_of_importance(forecast_day=3)
 
         self.assertNotIn(self.TARGET, importance)
 
     def test_features_of_importance_computes_the_day_on_demand(self):
-        # api.py calls this without calling _feature_importance first.
+        # api.py calls this without calling feature_importance first.
         model = self._model()
         self.assertEqual(model.features_over_time_dict, {})
 
-        importance = model._return_features_of_importance(forecast_day=2)
+        importance = model.get_features_of_importance(forecast_day=2)
 
         self.assertGreater(len(importance), 0)
 
@@ -104,7 +104,7 @@ class TestFeatureImportanceReporting(unittest.TestCase):
         model = self._model()
 
         with self.assertRaises(ValueError):
-            model._return_features_of_importance(forecast_day=0)
+            model.get_features_of_importance(forecast_day=0)
 
     def test_predictive_power_scores_against_the_future_label(self):
         model = self._model()

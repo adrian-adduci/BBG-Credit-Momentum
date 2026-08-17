@@ -112,7 +112,7 @@ BLOOMBERG_MAX_RETRIES=3
 #### Before (Credit Only)
 
 ```python
-from _data_sources import ExcelDataSource
+from data_sources import ExcelDataSource
 
 # Load credit data only
 source = ExcelDataSource(file_path="data/bloomberg_export.xlsx")
@@ -122,7 +122,7 @@ df = source.load_data()
 #### After (Mixed Portfolio)
 
 ```python
-from _data_sources import (
+from data_sources import (
     MixedPortfolioDataSource,
     BloombergExcelDataSource,
     DataSourceFactory
@@ -158,9 +158,9 @@ df = mixed_source.load_data()
 #### Before
 
 ```python
-from _preprocessing import _preprocess_xlsx
+from preprocessing import BloombergPreprocessor
 
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file="data/economic_data.xlsx",
     target_col="LF98TRUU_Index_OAS",
     momentum_list=["LF98TRUU_Index_OAS"],
@@ -170,9 +170,9 @@ pipeline = _preprocess_xlsx(
 #### After (With Cross-Asset Features)
 
 ```python
-from _preprocessing import _preprocess_xlsx
+from preprocessing import BloombergPreprocessor
 
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file=df,  # Can pass DataFrame directly
     target_col="BTC_USDT_close",
     momentum_list=[
@@ -189,10 +189,10 @@ pipeline = _preprocess_xlsx(
 No changes required! Model training works the same:
 
 ```python
-from _models import _build_model
+from models import MomentumModel
 
 # Same as before
-model = _build_model(pipeline, model_name='XGBoost')
+model = MomentumModel(pipeline, model_name='XGBoost')
 ```
 
 ---
@@ -223,7 +223,7 @@ pip install -r requirements.txt
 
 ```bash
 # Verify existing code still works
-python -c "from _data_sources import ExcelDataSource; print('✓ Legacy imports work')"
+python -c "from data_sources import ExcelDataSource; print('✓ Legacy imports work')"
 ```
 
 #### Step 4: Add New Data Sources Gradually
@@ -232,7 +232,7 @@ Start by adding crypto data alongside your existing credit data:
 
 ```python
 # test_mixed.py
-from _data_sources import MixedPortfolioDataSource, ExcelDataSource, DataSourceFactory
+from data_sources import MixedPortfolioDataSource, ExcelDataSource, DataSourceFactory
 from datetime import datetime
 
 # Your existing credit source (no changes)
@@ -262,7 +262,7 @@ print(f"✓ Mixed data loaded: {len(df)} rows, {len(df.columns)} columns")
 
 ```python
 # In your preprocessing code, add one parameter:
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file=df,
     target_col="BTC_USDT_close",
     momentum_list=["BTC_USDT_close", "LF98TRUU_Index_OAS"],
@@ -275,7 +275,7 @@ pipeline = _preprocess_xlsx(
 
 ```python
 # Check that cross-asset features were added
-processed_df = pipeline._return_dataframe()
+processed_df = pipeline.get_dataframe()
 
 cross_asset_features = [
     col for col in processed_df.columns
@@ -419,7 +419,7 @@ print(f"Credit columns found: {credit_cols}")
 **Fallback**: Use hybrid mode for automatic fallback to Excel:
 
 ```python
-from _data_sources import HybridBloombergDataSource
+from data_sources import HybridBloombergDataSource
 
 source = HybridBloombergDataSource(
     securities=["LF98TRUU Index"],
@@ -477,7 +477,7 @@ df = cross_asset_calc.add_all_cross_asset_features(
 
 # 2. Feature selection after training
 model.predictive_power(forecast_range=30)
-top_features = model._return_features_of_importance(forecast_day=30, top_n=20)
+top_features = model.get_features_of_importance(forecast_day=30, threshold=0.05)
 
 # 3. Increase data size
 # Use at least 6 months of data for cross-asset analysis
@@ -496,14 +496,14 @@ cp -r data_backup data
 
 # 2. Remove cross_asset_features parameter
 # In your preprocessing code:
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file="data/economic_data.xlsx",
     target_col="LF98TRUU_Index_OAS",
     # Remove: cross_asset_features=True
 )
 
 # 3. Use legacy data sources
-from _data_sources import ExcelDataSource
+from data_sources import ExcelDataSource
 source = ExcelDataSource(file_path="data/bloomberg_export.xlsx")
 ```
 

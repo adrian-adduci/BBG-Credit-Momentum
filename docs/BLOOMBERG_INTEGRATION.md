@@ -411,7 +411,7 @@ data_source:
 ### Example 1: Basic Bloomberg API Usage
 
 ```python
-from _data_sources import BloombergAPIDataSource
+from data_sources import BloombergAPIDataSource
 from datetime import datetime
 
 # Initialize source
@@ -434,7 +434,7 @@ print(df.head())
 ### Example 2: Bloomberg Excel with Error Handling
 
 ```python
-from _data_sources import BloombergExcelDataSource
+from data_sources import BloombergExcelDataSource
 
 # Initialize source
 source = BloombergExcelDataSource(
@@ -452,7 +452,7 @@ print(f"Missing values: {df.isna().sum().sum()}")
 ### Example 3: Hybrid Mode with Fallback
 
 ```python
-from _data_sources import HybridBloombergDataSource
+from data_sources import HybridBloombergDataSource
 from datetime import datetime
 
 # Initialize hybrid source
@@ -472,7 +472,7 @@ df = source.load_data()
 ### Example 4: Using DataSourceFactory
 
 ```python
-from _data_sources import DataSourceFactory
+from data_sources import DataSourceFactory
 from datetime import datetime
 
 # Create Bloomberg API source via factory
@@ -490,9 +490,9 @@ df = source.load_data()
 ### Example 5: Integration with Analysis Pipeline
 
 ```python
-from _data_sources import HybridBloombergDataSource
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from data_sources import HybridBloombergDataSource
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 from datetime import datetime
 
 # 1. Load Bloomberg data
@@ -507,7 +507,7 @@ source = HybridBloombergDataSource(
 df = source.load_data()
 
 # 2. Preprocess data
-preprocessor = _preprocess_xlsx(
+preprocessor = BloombergPreprocessor(
     data=df,
     target_col="LF98TRUU_Index_OAS",
     momentum_list=["LF98TRUU_Index_OAS", "LUACTRUU_Index_OAS"],
@@ -516,14 +516,14 @@ preprocessor = _preprocess_xlsx(
 )
 
 # 3. Build and train model
-model = _build_model(
+model = MomentumModel(
     preprocessor=preprocessor,
     model_name="XGBoost",
     estimators=1000
 )
 
 # 4. Get predictions
-predictions = model._return_final_data()
+predictions = model.get_final_data()
 print(predictions.tail())
 ```
 

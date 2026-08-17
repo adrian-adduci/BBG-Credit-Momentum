@@ -47,8 +47,17 @@ def _resolve_plot_dir(plot_dir):
     return target
 
 
-# Debug and logger
-warnings.filterwarnings("ignore")
+# Silence only the noise this module actually provokes. The previous blanket
+# warnings.filterwarnings("ignore") applied process-wide to anything that
+# imported this module, hiding genuine pandas and sklearn deprecations from the
+# app, the API and the test suite alike.
+warnings.filterwarnings(
+    "ignore", category=UserWarning, module=r"ppscore\..*"
+)
+warnings.filterwarnings(
+    "ignore", category=FutureWarning, module=r"(seaborn|ppscore)\..*"
+)
+
 logger = get_logger("_model", "_model.log")
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
@@ -56,7 +65,7 @@ os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 
 
-class _build_model:
+class MomentumModel:
     """
     Builds and trains machine learning models for time series forecasting.
 
@@ -65,7 +74,7 @@ class _build_model:
     sklearn models including XGBoost, CART, and regression models.
 
     Args:
-        pipeline: _preprocess_xlsx object containing preprocessed data
+        pipeline: BloombergPreprocessor object containing preprocessed data
         model_name: Name of the model to use (default: "XGBoost")
             Options: "XGBoost", "CART", "AdaBoostClassifier",
                      "LogisticRegression", "Quadratic Regression", "KNeighborsRegressor"
@@ -82,10 +91,10 @@ class _build_model:
         features_over_time_dict: Feature importance across forecast horizons
 
     Example:
-        >>> pipeline = _preprocess_xlsx("data.xlsx", "target_col")
-        >>> model = _build_model(pipeline, model_name="XGBoost")
+        >>> pipeline = BloombergPreprocessor("data.xlsx", "target_col")
+        >>> model = MomentumModel(pipeline, model_name="XGBoost")
         >>> model.predictive_power(forecast_range=30)
-        >>> mae, mse, rmse = model._return_mean_error_metrics()
+        >>> mae, mse, rmse = model.get_mean_error_metrics()
     """
     def __init__(
         self,
@@ -114,13 +123,8 @@ class _build_model:
             self.X_test,
             self.Y_train,
             self.Y_test,
-        ) = pipeline._return_test_and_train_data()
-        (
-            self.Y_encoded,
-            self.Y_train_encoded,
-            self.Y_test_encoded,
-        ) = pipeline._return_Y_encoded()
-        self.X_df, self.Y_df = pipeline._return_X_Y_dataframe()
+        ) = pipeline.get_test_and_train_data()
+        self.X_df, self.Y_df = pipeline.get_X_Y_dataframe()
 
         logger.info(f" Selecting model {model_name}")
 
@@ -152,9 +156,9 @@ class _build_model:
 
         # Forecasts are produced from the aligned feature frame, whose rows are
         # exactly those with an observable future value.
-        X_all, _ = self.pipeline._return_feature_frame()
-        final = self.pipeline._return_complete_data().loc[X_all.index].copy()
-        forecast_col = f"{self.pipeline._return_target_col()}_Forecast"
+        X_all, _ = self.pipeline.get_feature_frame()
+        final = self.pipeline.get_complete_data().loc[X_all.index].copy()
+        forecast_col = f"{self.pipeline.get_target_col()}_Forecast"
         final[forecast_col] = self.model.predict(X_all)
         self.final_data = final.sort_values("Dates", ascending=False).set_index("Dates")
 
@@ -198,11 +202,11 @@ class _build_model:
             PNG file saved to ``<plot_dir>/predictive_power.png``.
         """
 
-        all_data, X_data, Y_data = self.pipeline._return_data_with_dh_actuals(
+        all_data, X_data, Y_data = self.pipeline.get_data_with_dh_actuals(
             days_ahead=forecast_range
         )
 
-        pipeline_target = self.pipeline._return_target_col()
+        pipeline_target = self.pipeline.get_target_col()
         label_col = f"{pipeline_target}_{forecast_range}D_Ahead_Actual"
 
         # ppscore needs the scored column inside the frame it is handed, so
@@ -237,7 +241,7 @@ class _build_model:
 
         return predictors_df
 
-    def _feature_importance(self, forecast_range=30, plot=True):
+    def feature_importance(self, forecast_range=30, plot=True):
         """
         Calculate and visualize feature importance for each forecast day.
 
@@ -257,9 +261,9 @@ class _build_model:
             of top features for the final forecast day
         """
 
-        pipeline_target = self.pipeline._return_target_col()
+        pipeline_target = self.pipeline.get_target_col()
 
-        all_data, X_data, Y_data = self.pipeline._return_data_with_dh_actuals(
+        all_data, X_data, Y_data = self.pipeline.get_data_with_dh_actuals(
             days_ahead=forecast_range, target=pipeline_target
         )
 
@@ -318,14 +322,14 @@ class _build_model:
                         if plot:
                             f.show()
 
-    def _feature_importance_over_time(
+    def feature_importance_over_time(
         self, plot=True, forecast_range=30, usefulness_threshold=0.2
     ):
 
-        pipeline_target = self.pipeline._return_target_col()
+        pipeline_target = self.pipeline.get_target_col()
 
         if not self.features_over_time_dict:
-            self._feature_importance(forecast_range, plot=False)
+            self.feature_importance(forecast_range, plot=False)
 
         list_of_days_to_forecast = list(range(1, forecast_range + 1))
         df = pd.DataFrame()
@@ -368,13 +372,13 @@ class _build_model:
             self.plot_dir / "feats_importance_over_time.png", bbox_inches="tight"
         )
 
-    # NOTE: _return_roc_and_precision_recall_curves was removed. It called
+    # NOTE: get_roc_and_precision_recall_curves was removed. It called
     # plot_roc_curve / plot_precision_recall_curve, which were never imported
     # and were deleted from scikit-learn in 1.2, and it indexed a 1-D axes
     # array as axes[0, 0]. It could never have run. For classification use
     # sklearn.metrics.RocCurveDisplay.from_estimator instead.
 
-    def _return_mean_error_metrics(self):
+    def get_mean_error_metrics(self):
         """
         Calculate and return model error metrics.
 
@@ -385,7 +389,7 @@ class _build_model:
             tuple: (MAE, MSE, RMSE) as floats
 
         Example:
-            >>> mae, mse, rmse = model._return_mean_error_metrics()
+            >>> mae, mse, rmse = model.get_mean_error_metrics()
             >>> print(f"Model RMSE: {rmse:.4f}")
         """
         MAE = metrics.mean_absolute_error(self.Y_test, self.model_preds)
@@ -399,7 +403,7 @@ class _build_model:
 
         # Squared, not doubled. The original computed `residual * 2` and
         # labelled the series "MSE", which also let it go negative.
-        errors = self._return_squared_errors().tolist()
+        errors = self.get_squared_errors().tolist()
 
         err_MSE_df = pd.DataFrame(
             list(zip(num_predictions, errors)), columns=["Prediction", "MSE"]
@@ -411,7 +415,7 @@ class _build_model:
         )
         return MAE, MSE, RMSE
 
-    def _return_features_of_importance(
+    def get_features_of_importance(
         self, forecast_day=30, threshold=0.05
     ):
         """
@@ -423,7 +427,7 @@ class _build_model:
         every request instead of surfacing the AttributeError.
 
         Importances for the requested day are computed on demand if
-        ``_feature_importance`` has not already run.
+        ``feature_importance`` has not already run.
 
         Args:
             forecast_day: Forecast horizon in days (default: 30)
@@ -442,7 +446,7 @@ class _build_model:
             )
 
         if forecast_day not in self.features_over_time_dict:
-            self._feature_importance(forecast_range=forecast_day, plot=False)
+            self.feature_importance(forecast_range=forecast_day, plot=False)
 
         if forecast_day not in self.features_over_time_dict:
             return {}
@@ -458,20 +462,20 @@ class _build_model:
 
         return dict(sorted(scored.items(), key=lambda kv: kv[1], reverse=True))
 
-    def _return_squared_errors(self):
+    def get_squared_errors(self):
         """Per-prediction squared residuals on the held-out set."""
         residuals = np.asarray(self.Y_test) - np.asarray(self.model_preds)
         return residuals ** 2
 
-    def _return_preds(self):
+    def get_preds(self):
         return self.model_preds
 
-    def _return_preds_with_dates(self):
+    def get_preds_with_dates(self):
         self.model_preds["Dates"] = self.X_test_dates
         return self.model_preds
 
-    def _return_final_data(self):
+    def get_final_data(self):
         return self.final_data
 
-    def _return_model(self):
+    def get_model(self):
         return self.model

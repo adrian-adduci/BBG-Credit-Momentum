@@ -21,17 +21,17 @@ if str(ROOT) not in sys.path:
 def _redirect_plot_output(tmp_path_factory):
     """Send every chart written during the suite to a temporary directory.
 
-    _build_model accepts a plot_dir, but a test that forgets to pass one would
+    MomentumModel accepts a plot_dir, but a test that forgets to pass one would
     silently fall back to the tracked <repo>/_img/ folder and overwrite
     committed assets with charts rendered from fixture data. Overriding the
     default for the whole session makes that impossible rather than merely
     discouraged, so `pytest` can never leave the working tree dirty.
     """
-    import _models
+    import models
 
-    original = _models.DEFAULT_PLOT_DIR
-    _models.DEFAULT_PLOT_DIR = tmp_path_factory.mktemp("plots")
+    original = models.DEFAULT_PLOT_DIR
+    models.DEFAULT_PLOT_DIR = tmp_path_factory.mktemp("plots")
     try:
-        yield _models.DEFAULT_PLOT_DIR
+        yield models.DEFAULT_PLOT_DIR
     finally:
-        _models.DEFAULT_PLOT_DIR = original
+        models.DEFAULT_PLOT_DIR = original

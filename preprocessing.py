@@ -12,7 +12,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-from sklearn import preprocessing
 from tabulate import tabulate
 
 from forecasting import make_supervised, time_ordered_split
@@ -24,14 +23,14 @@ from indicators.cross_asset import CrossAssetIndicators, identify_crypto_credit_
 from logging_setup import get_logger
 
 path = pathlib.Path(__file__).parent.absolute()
-logger = get_logger("_preprocess_xlsx", "_preprocess.log")
+logger = get_logger("BloombergPreprocessor", "_preprocess.log")
 os.environ["NUMEXPR_MAX_THREADS"] = "16"
 ################################################################################
 # Pre-Processing of XLSX Into Pandas Dataframe
 ################################################################################
 
 
-class _preprocess_xlsx:
+class BloombergPreprocessor:
     """
     Preprocesses Excel data for machine learning model training.
 
@@ -128,7 +127,6 @@ class _preprocess_xlsx:
             error_msg = f"Target column '{target_col}' not found in Excel file"
             logger.error(error_msg)
             raise ValueError(error_msg)
-        self.label_encoder = preprocessing.LabelEncoder()
         self.target_col = target_col
         self.forecast_list = forecast_list
         self.momentum_list = momentum_list
@@ -201,11 +199,11 @@ class _preprocess_xlsx:
 
         self._find_entropy_of_feature(self.Y)
 
-        # Encode Target
-        logger.debug(" Encoding target training and test data")
-        self.Y_encoded = self.label_encoder.fit_transform(self.Y)
-        self.Y_train_encoded = self.label_encoder.fit_transform(self.Y_train)
-        self.Y_test_encoded = self.label_encoder.fit_transform(self.Y_test)
+        # NOTE: the target is deliberately NOT label-encoded. It is a continuous
+        # spread, so LabelEncoder produced roughly one "class" per row, and it
+        # was fitted three separate times -- on Y, Y_train and Y_test -- giving
+        # three encodings that did not share a mapping. Nothing consumed the
+        # result once the dead ROC/precision-recall method was removed.
 
     ################################################################################
     # Class Methods
@@ -285,22 +283,20 @@ class _preprocess_xlsx:
     ################################################################################
 
     def _add_custom_features(self):
-        # Optional: Convert EARN_DOWN and EARN_UP if they exist
-        if "EARN_DOWN" in self.df.columns:
-            try:
-                self.df["EARN_DOWN"] = self.df["EARN_DOWN"].astype(np.float16)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Could not convert EARN_DOWN to float16: {str(e)}")
-        else:
-            logger.debug("EARN_DOWN not included in Excel file (optional column)")
-
-        if "EARN_UP" in self.df.columns:
-            try:
-                self.df["EARN_UP"] = self.df["EARN_UP"].astype(np.float16)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Could not convert EARN_UP to float16: {str(e)}")
-        else:
-            logger.debug("EARN_UP not included in Excel file (optional column)")
+        # Coerce the optional earnings-revision counts to a numeric dtype.
+        #
+        # These were cast to float16, which carries about 3 decimal digits and
+        # cannot represent an integer above 2048 exactly -- a real limit for
+        # revision counts. There is no memory argument for it on a frame this
+        # size, so use the platform float.
+        for column in ("EARN_DOWN", "EARN_UP"):
+            if column in self.df.columns:
+                try:
+                    self.df[column] = self.df[column].astype(np.float64)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Could not convert {column} to float64: {e}")
+            else:
+                logger.debug(f"{column} not included in Excel file (optional column)")
 
         # Add new momentum features
         self._add_momentum(
@@ -763,7 +759,7 @@ class _preprocess_xlsx:
     ################################################################################
 
     # Add column to df with actual value of target in days ahead
-    def _return_data_with_dh_actuals(self, days_ahead=None, target=None):
+    def get_data_with_dh_actuals(self, days_ahead=None, target=None):
         max_forecast = days_ahead
         if max_forecast == None:
             max_forecast = max(self.forecast_list)
@@ -804,43 +800,40 @@ class _preprocess_xlsx:
     def _print_target_col(self):
         print(tabulate(self.target_col))
 
-    def _return_target_col(self):
+    def get_target_col(self):
         return self.target_col
 
-    def _return_feature_names(self):
+    def get_feature_names(self):
         return self.feature_cols
 
-    def _return_complete_data(self):
+    def get_complete_data(self):
         return self.complete_data
 
-    def _return_test_and_train_data(self):
+    def get_test_and_train_data(self):
         return self.X_train, self.X_test, self.Y_train, self.Y_test
 
-    def _return_train_dates(self):
+    def get_train_dates(self):
         """Observation timestamps of the training rows."""
         return self.train_dates
 
-    def _return_test_dates(self):
+    def get_test_dates(self):
         """Observation timestamps of the held-out rows (all after training)."""
         return self.test_dates
 
-    def _return_feature_frame(self):
+    def get_feature_frame(self):
         """The full feature matrix and its dates, aligned to the labels."""
         return self.X, self.dates
 
-    def _return_horizon(self):
+    def get_horizon(self):
         return self.horizon
 
-    def _return_Y_encoded(self):
-        return self.Y_encoded, self.Y_train_encoded, self.Y_test_encoded
-
-    def _return_dataframe(self):
+    def get_dataframe(self):
         return self.complete_data
 
-    def _return_X_Y_dataframe(self):
+    def get_X_Y_dataframe(self):
         return self.X, self.Y
 
-    def _return_forecast_list(self):
+    def get_forecast_list(self):
         return self.forecast_list
 
     def __str__(self):

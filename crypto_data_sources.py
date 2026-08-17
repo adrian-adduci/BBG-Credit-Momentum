@@ -10,7 +10,7 @@ Classes:
     CryptoAggregatorDataSource: Aggregated data from multiple exchanges
 
 Example:
-    >>> from _crypto_data_sources import CryptoExchangeDataSource
+    >>> from crypto_data_sources import CryptoExchangeDataSource
     >>> from datetime import datetime
     >>>
     >>> source = CryptoExchangeDataSource(
@@ -32,14 +32,14 @@ import logging
 from pathlib import Path
 import time
 
-from _data_sources import DataSource
+from data_sources import DataSource
 
 # Configure logging. Note this deliberately does NOT call basicConfig: a
 # library module reconfiguring the root logger silently overrides whatever
 # logging the importing application has already set up.
 from logging_setup import get_logger
 
-logger = get_logger(__name__, "_crypto_data_sources.log")
+logger = get_logger(__name__, "crypto_data_sources.log")
 
 #: Retry policy for exchange pagination. A persistent NetworkError -- a
 #: geo-block, dead DNS, revoked key -- must terminate rather than loop.

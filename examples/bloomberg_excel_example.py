@@ -27,9 +27,9 @@ from datetime import datetime
 import pandas as pd
 import os
 
-from _data_sources import BloombergExcelDataSource, ExcelDataSource
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from data_sources import BloombergExcelDataSource, ExcelDataSource
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 
 
 def example_1_basic_excel_loading():
@@ -351,7 +351,7 @@ def example_5_integration_with_analysis():
         print(f"Target: {target_col}")
         print(f"Momentum columns: {momentum_cols}")
 
-        preprocessor = _preprocess_xlsx(
+        preprocessor = BloombergPreprocessor(
             data=df,
             target_col=target_col,
             momentum_list=momentum_cols,
@@ -366,7 +366,7 @@ def example_5_integration_with_analysis():
         # Step 3: Train model
         print("\nStep 3: Training model...")
 
-        model = _build_model(
+        model = MomentumModel(
             preprocessor=preprocessor,
             model_name="XGBoost",
             estimators=500
@@ -377,7 +377,7 @@ def example_5_integration_with_analysis():
         # Step 4: Results
         print("\nStep 4: Results...")
 
-        predictions = model._return_final_data()
+        predictions = model.get_final_data()
 
         print("\nPredictions (last 5 rows):")
         print(predictions[["Dates", target_col]].tail())

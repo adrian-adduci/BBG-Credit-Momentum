@@ -32,9 +32,9 @@ This guide shows you how to use the BBG Credit Momentum system to analyze crypto
 ### 5-Minute Mixed Portfolio Analysis
 
 ```python
-from _data_sources import MixedPortfolioDataSource, BloombergExcelDataSource, DataSourceFactory
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from data_sources import MixedPortfolioDataSource, BloombergExcelDataSource, DataSourceFactory
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 from datetime import datetime
 
 # 1. Load crypto data
@@ -60,7 +60,7 @@ mixed_source = MixedPortfolioDataSource(
 df = mixed_source.load_data()
 
 # 4. Preprocess with cross-asset features
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file=df,
     target_col="BTC_USDT_close",
     momentum_list=["BTC_USDT_close", "LF98TRUU_Index_OAS"],
@@ -69,10 +69,10 @@ pipeline = _preprocess_xlsx(
 )
 
 # 5. Train model
-model = _build_model(pipeline, model_name='XGBoost')
+model = MomentumModel(pipeline, model_name='XGBoost')
 
 # 6. Analyze
-mae, mse, rmse = model._return_mean_error_metrics()
+mae, mse, rmse = model.get_mean_error_metrics()
 print(f"Model RMSE: {rmse:.2f}")
 ```
 
@@ -135,7 +135,7 @@ New features that capture relationships between asset classes:
 **Supported Exchanges**: 100+ including Binance, Coinbase, Kraken, Bybit, OKX
 
 ```python
-from _data_sources import DataSourceFactory
+from data_sources import DataSourceFactory
 from datetime import datetime
 
 source = DataSourceFactory.create(
@@ -162,7 +162,7 @@ df = source.load_data()
 **Requirements**: Bloomberg Terminal with Excel plugin
 
 ```python
-from _data_sources import BloombergExcelDataSource
+from data_sources import BloombergExcelDataSource
 
 source = BloombergExcelDataSource(
     file_path="data/bloomberg_export.xlsx",
@@ -187,7 +187,7 @@ df = source.load_data()
 **Requirements**: Bloomberg Terminal + Desktop API enabled
 
 ```python
-from _data_sources import BloombergAPIDataSource
+from data_sources import BloombergAPIDataSource
 from datetime import datetime
 
 source = BloombergAPIDataSource(
@@ -212,7 +212,7 @@ df = source.load_data()
 **Best of both worlds**: Try API first, fallback to Excel if unavailable.
 
 ```python
-from _data_sources import HybridBloombergDataSource
+from data_sources import HybridBloombergDataSource
 
 source = HybridBloombergDataSource(
     securities=["LF98TRUU Index"],
@@ -242,7 +242,7 @@ Enabled with `crypto_features=True`:
 - **ATR** (Average True Range): Volatility measure
 
 ```python
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file=df,
     target_col="BTC_USDT_close",
     crypto_features=True,  # ← Enables crypto indicators
@@ -350,12 +350,12 @@ print(summary)
 ### Standard Training
 
 ```python
-from _models import _build_model
+from models import MomentumModel
 
-model = _build_model(pipeline, model_name='XGBoost')
+model = MomentumModel(pipeline, model_name='XGBoost')
 
 # Get metrics
-mae, mse, rmse = model._return_mean_error_metrics()
+mae, mse, rmse = model.get_mean_error_metrics()
 print(f"MAE: {mae:.2f}, RMSE: {rmse:.2f}")
 ```
 
@@ -366,7 +366,7 @@ print(f"MAE: {mae:.2f}, RMSE: {rmse:.2f}")
 model.predictive_power(forecast_range=30)
 
 # Get top features for 30-day forecast
-top_features = model._return_features_of_importance(forecast_day=30)
+top_features = model.get_features_of_importance(forecast_day=30)
 
 print("Top 10 Features:")
 for feature, importance in list(top_features.items())[:10]:
@@ -382,8 +382,8 @@ for feature, importance in list(top_features.items())[:10]:
 models = {}
 
 for model_type in ['XGBoost', 'CART', 'AdaBoost']:
-    model = _build_model(pipeline, model_name=model_type)
-    mae, mse, rmse = model._return_mean_error_metrics()
+    model = MomentumModel(pipeline, model_name=model_type)
+    mae, mse, rmse = model.get_mean_error_metrics()
     models[model_type] = {'mae': mae, 'rmse': rmse}
 
 # Print comparison
@@ -402,7 +402,7 @@ for name, metrics in models.items():
 import pandas as pd
 
 # Get processed dataframe
-df = pipeline._return_dataframe()
+df = pipeline.get_dataframe()
 
 # Find correlation features
 corr_features = [col for col in df.columns if col.startswith('corr_')]
@@ -541,7 +541,7 @@ logger = logging.getLogger(__name__)
 
 def monitor_prediction_quality(model, pipeline):
     """Monitor model performance in production."""
-    mae, mse, rmse = model._return_mean_error_metrics()
+    mae, mse, rmse = model.get_mean_error_metrics()
 
     if rmse > THRESHOLD:
         logger.warning(f"Model RMSE ({rmse:.2f}) exceeds threshold ({THRESHOLD})")
@@ -617,8 +617,8 @@ def monitor_prediction_quality(model, pipeline):
 Detect current market regime to inform trading strategy.
 """
 
-from _data_sources import MixedPortfolioDataSource, DataSourceFactory, BloombergExcelDataSource
-from _preprocessing import _preprocess_xlsx
+from data_sources import MixedPortfolioDataSource, DataSourceFactory, BloombergExcelDataSource
+from preprocessing import BloombergPreprocessor
 from datetime import datetime
 
 # Load data
@@ -628,10 +628,10 @@ mixed = MixedPortfolioDataSource(sources=[crypto, credit], alignment='outer')
 df = mixed.load_data()
 
 # Process with cross-asset features
-pipeline = _preprocess_xlsx(df, target_col="BTC_USDT_close", momentum_list=["BTC_USDT_close", "LF98TRUU_Index_OAS"], cross_asset_features=True)
+pipeline = BloombergPreprocessor(df, target_col="BTC_USDT_close", momentum_list=["BTC_USDT_close", "LF98TRUU_Index_OAS"], cross_asset_features=True)
 
 # Get current regime
-processed_df = pipeline._return_dataframe()
+processed_df = pipeline.get_dataframe()
 regime_col = [col for col in processed_df.columns if 'regime_' in col][0]
 current_regime = processed_df[regime_col].iloc[-1]
 
@@ -699,7 +699,7 @@ if current_ftq > ftq_threshold:
 **A**: Yes! The system is backward compatible. Simply don't enable `cross_asset_features`:
 
 ```python
-pipeline = _preprocess_xlsx(
+pipeline = BloombergPreprocessor(
     xlsx_file=crypto_df,
     target_col="BTC_USDT_close",
     crypto_features=True,

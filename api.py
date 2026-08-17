@@ -31,10 +31,10 @@ import logging
 from pathlib import Path
 
 # Import project modules
-import _preprocessing
-import _models
-from _data_sources import DataSourceFactory
-from _config import get_config
+import preprocessing
+import models
+from data_sources import DataSourceFactory
+from config import get_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -261,7 +261,7 @@ def train_model(request: TrainRequest):
                 f"{symbol.replace('/', '_')}_close" for symbol in request.symbols
             ]
 
-            pipeline = _preprocessing._preprocess_xlsx(
+            pipeline = preprocessing.BloombergPreprocessor(
                 xlsx_file=df,
                 target_col=request.target_column,
                 momentum_list=momentum_list,
@@ -278,7 +278,7 @@ def train_model(request: TrainRequest):
 
         # Train model
         try:
-            model = _models._build_model(
+            model = models.MomentumModel(
                 pipeline=pipeline,
                 model_name=request.model_type
             )
@@ -290,14 +290,14 @@ def train_model(request: TrainRequest):
             )
 
         # Get metrics
-        mae, mse, rmse = model._return_mean_error_metrics()
+        mae, mse, rmse = model.get_mean_error_metrics()
         logger.info(f"Metrics - MAE: {mae:.4f}, MSE: {mse:.4f}, RMSE: {rmse:.4f}")
 
         # Get feature importance (optional, may be slow)
         feature_importance = None
         try:
             model.predictive_power(forecast_range=30)
-            feature_importance = model._return_features_of_importance(forecast_day=30)
+            feature_importance = model.get_features_of_importance(forecast_day=30)
         except Exception as e:
             logger.warning(f"Feature importance calculation failed: {e}")
 
@@ -423,8 +423,8 @@ def backtest_strategy(request: BacktestRequest):
         pipeline = model_data["pipeline"]
 
         # Get historical data with predictions
-        df = pipeline._return_dataframe()
-        predictions = model._return_preds()
+        df = pipeline.get_dataframe()
+        predictions = model.get_preds()
 
         # Get target column
         target_col = model_data["config"]["target_column"]
@@ -666,7 +666,7 @@ def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
         start_time = datetime.now()
         logger.info(f"Mixed portfolio training: {request.crypto_symbols} + {request.bloomberg_securities}")
 
-        from _data_sources import MixedPortfolioDataSource, Security
+        from data_sources import MixedPortfolioDataSource, Security
 
         # Parse dates
         start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
@@ -769,7 +769,7 @@ def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
             # Assume bloomberg securities have OAS field
             momentum_list.extend([f"{sec.replace(' ', '_')}_OAS" for sec in request.bloomberg_securities])
 
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=df,
             target_col=request.target_column,
             momentum_list=momentum_list,
@@ -781,20 +781,20 @@ def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
         logger.info("Preprocessing complete with cross-asset features")
 
         # Train model
-        model = _models._build_model(
+        model = models.MomentumModel(
             pipeline=pipeline,
             model_name=request.model_type
         )
         logger.info(f"{request.model_type} training complete")
 
         # Get metrics
-        mae, mse, rmse = model._return_mean_error_metrics()
+        mae, mse, rmse = model.get_mean_error_metrics()
 
         # Get feature importance
         feature_importance = None
         try:
             model.predictive_power(forecast_range=30)
-            feature_importance = model._return_features_of_importance(forecast_day=30)
+            feature_importance = model.get_features_of_importance(forecast_day=30)
         except Exception as e:
             logger.warning(f"Feature importance calculation failed: {e}")
 
@@ -857,7 +857,7 @@ def get_cross_asset_analysis(model_id: str):
     try:
         # Get the processed dataframe
         pipeline = model_info["pipeline"]
-        df = pipeline._return_dataframe()
+        df = pipeline.get_dataframe()
 
         # Extract cross-asset features (most recent values)
         latest_data = df.iloc[-1]

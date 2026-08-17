@@ -3,7 +3,7 @@ Tests for the shared logger factory.
 
 The original modules built a ``logging.FileHandler`` at import time pointing
 into a ``logs/`` directory that is gitignored and therefore absent from a fresh
-clone. Importing ``_models`` or ``_preprocessing`` raised FileNotFoundError
+clone. Importing ``models`` or ``preprocessing`` raised FileNotFoundError
 before a single line of user code ran, and the README documented ``mkdir logs``
 as a troubleshooting step rather than fixing it.
 

@@ -11,9 +11,9 @@ import numpy as np
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
 
-import _preprocessing
-import _models
-from _data_sources import (
+import preprocessing
+import models
+from data_sources import (
     MixedPortfolioDataSource,
     BloombergExcelDataSource,
     DataSourceFactory,
@@ -25,8 +25,8 @@ from _data_sources import (
 # Helpers for driving the real MixedPortfolioDataSource API.
 #
 # These tests previously targeted an API that was never built: they patched
-# _data_sources.CryptoExchangeDataSource (that class lives in
-# _crypto_data_sources.py) and constructed
+# data_sources.CryptoExchangeDataSource (that class lives in
+# crypto_data_sources.py) and constructed
 # MixedPortfolioDataSource(sources=[...], alignment=...).
 #
 # The real constructor takes Security *definitions* plus a date range, and
@@ -86,7 +86,7 @@ class TestMixedPortfolioIntegration:
     # on date left roughly five overlapping rows, far fewer than the 31-period
     # warmup the stochastic-RSI and ROC indicators need. Those indicators then
     # emitted all-NaN columns, and the unconditional dropna() in
-    # _preprocess_xlsx reduced a 379-column frame to zero rows.
+    # BloombergPreprocessor reduced a 379-column frame to zero rows.
     PERIODS = 300
 
     @pytest.fixture
@@ -174,7 +174,7 @@ class TestMixedPortfolioIntegration:
         combined.to_excel(test_file, index=False)
 
         # Preprocess with cross-asset features
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=str(test_file),
             target_col='BTC_USDT_close',
             momentum_list=['BTC_USDT_close', 'LF98TRUU_Index_OAS'],
@@ -183,7 +183,7 @@ class TestMixedPortfolioIntegration:
         )
 
         # Verify cross-asset features were added
-        df = pipeline._return_dataframe()
+        df = pipeline.get_dataframe()
 
         # Check for cross-asset feature columns
         cross_asset_features = [col for col in df.columns if any(
@@ -217,7 +217,7 @@ class TestMixedPortfolioIntegration:
         combined.to_excel(test_file, index=False)
 
         # Preprocess
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=str(test_file),
             target_col='BTC_USDT_close',
             momentum_list=['BTC_USDT_close', 'LF98TRUU_Index_OAS'],
@@ -226,11 +226,11 @@ class TestMixedPortfolioIntegration:
         )
 
         # Train model
-        model = _models._build_model(pipeline, model_name='XGBoost')
+        model = models.MomentumModel(pipeline, model_name='XGBoost')
 
         # Verify model trained successfully
         assert model is not None
-        mae, mse, rmse = model._return_mean_error_metrics()
+        mae, mse, rmse = model.get_mean_error_metrics()
         assert mae > 0
         assert mse > 0
         assert rmse > 0
@@ -260,7 +260,7 @@ class TestMixedPortfolioIntegration:
         combined.to_excel(test_file, index=False)
 
         # Preprocess and train
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=str(test_file),
             target_col='BTC_USDT_close',
             momentum_list=['BTC_USDT_close', 'LF98TRUU_Index_OAS'],
@@ -268,19 +268,19 @@ class TestMixedPortfolioIntegration:
             cross_asset_features=True
         )
 
-        model = _models._build_model(pipeline, model_name='XGBoost')
+        model = models.MomentumModel(pipeline, model_name='XGBoost')
 
         # Calculate feature importance.
         #
         # This block used to be wrapped in `except Exception: pytest.skip(...)`,
         # which turned real defects into a green run. It was concealing two of
-        # them: _return_features_of_importance did not exist at all, and
+        # them: get_features_of_importance did not exist at all, and
         # predictive_power handed ppscore a frame that did not contain the
         # column it was told to score. Let failures fail.
         scores = model.predictive_power(forecast_range=10, plot=False)
         assert not scores.empty
 
-        feature_importance = model._return_features_of_importance(forecast_day=10)
+        feature_importance = model.get_features_of_importance(forecast_day=10)
         assert isinstance(feature_importance, dict)
 
         # The raw target must never be reported as a predictor of itself.
@@ -416,7 +416,7 @@ class TestErrorHandling:
         crypto_only.to_excel(test_file, index=False)
 
         # Should not crash, but may warn about no cross-asset features
-        pipeline = _preprocessing._preprocess_xlsx(
+        pipeline = preprocessing.BloombergPreprocessor(
             xlsx_file=str(test_file),
             target_col='BTC_USDT_close',
             momentum_list=['BTC_USDT_close'],
@@ -424,7 +424,7 @@ class TestErrorHandling:
         )
 
         # Should complete without error
-        df = pipeline._return_dataframe()
+        df = pipeline.get_dataframe()
         assert df is not None
 
 

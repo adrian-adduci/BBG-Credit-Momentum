@@ -21,15 +21,15 @@ from api import app
 # AttributeError. api.py does not import that name at module level -- the
 # /api/mixed/train handler imports it *inside the function body*:
 #
-#     from _data_sources import (MixedPortfolioDataSource,
+#     from data_sources import (MixedPortfolioDataSource,
 #                                BloombergAPIDataSource,
 #                                BloombergExcelDataSource, ...)
 #
-# A function-local import resolves the name from _data_sources every call, so
+# A function-local import resolves the name from data_sources every call, so
 # the attribute never exists on the api module and mock.patch cannot find it.
 # Patching it where it is defined works for exactly that reason.
 # ---------------------------------------------------------------------------
-BLOOMBERG_EXCEL = "_data_sources.BloombergExcelDataSource"
+BLOOMBERG_EXCEL = "data_sources.BloombergExcelDataSource"
 
 
 class TestMixedPortfolioAPI:
@@ -69,7 +69,7 @@ class TestMixedPortfolioAPI:
         }
 
         with patch(
-            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            "data_sources.MixedPortfolioDataSource._load_security_data",
             side_effect=lambda sec: frames[sec.identifier],
         ):
             request_data = {
@@ -98,7 +98,7 @@ class TestMixedPortfolioAPI:
         """Feature importance must be populated, not silently swallowed.
 
         The handler wraps its importance calculation in `except Exception` and
-        only logs a warning. _return_features_of_importance did not exist, so
+        only logs a warning. get_features_of_importance did not exist, so
         every response carried feature_importance: null and no test noticed.
         """
         bloomberg_file = tmp_path / "bloomberg_fi.xlsx"
@@ -113,7 +113,7 @@ class TestMixedPortfolioAPI:
         }
 
         with patch(
-            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            "data_sources.MixedPortfolioDataSource._load_security_data",
             side_effect=lambda sec: frames[sec.identifier],
         ):
             response = client.post(
@@ -197,7 +197,7 @@ class TestMixedPortfolioAPI:
 
         with patch('api.DataSourceFactory.create') as mock_factory, \
              patch(BLOOMBERG_EXCEL) as mock_bloomberg, \
-             patch('_data_sources.MixedPortfolioDataSource') as mock_mixed:
+             patch('data_sources.MixedPortfolioDataSource') as mock_mixed:
 
             # Setup mocks
             mock_crypto_source = MagicMock()

@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 import ccxt
 import pandas as pd
 
-from _crypto_data_sources import CryptoExchangeDataSource
+from crypto_data_sources import CryptoExchangeDataSource
 
 
 def _source(exchange, **kwargs):

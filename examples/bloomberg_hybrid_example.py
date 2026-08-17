@@ -26,12 +26,12 @@ from datetime import datetime
 import pandas as pd
 import os
 
-from _data_sources import (
+from data_sources import (
     HybridBloombergDataSource,
     BloombergTerminalNotRunning
 )
-from _preprocessing import _preprocess_xlsx
-from _models import _build_model
+from preprocessing import BloombergPreprocessor
+from models import MomentumModel
 
 
 def example_1_basic_hybrid():
@@ -417,7 +417,7 @@ def example_7_complete_pipeline():
         # Step 3: Preprocess
         print("\nStep 3: Preprocessing...")
 
-        preprocessor = _preprocess_xlsx(
+        preprocessor = BloombergPreprocessor(
             data=df,
             target_col="LF98TRUU_Index_OAS",
             momentum_list=["LF98TRUU_Index_OAS", "LUACTRUU_Index_OAS"],
@@ -432,7 +432,7 @@ def example_7_complete_pipeline():
         # Step 4: Train model
         print("\nStep 4: Training model...")
 
-        model = _build_model(
+        model = MomentumModel(
             preprocessor=preprocessor,
             model_name="XGBoost",
             estimators=500
@@ -443,7 +443,7 @@ def example_7_complete_pipeline():
         # Step 5: Generate predictions
         print("\nStep 5: Generating predictions...")
 
-        predictions = model._return_final_data()
+        predictions = model.get_final_data()
 
         print("\nLatest predictions:")
         print(predictions[["Dates", "LF98TRUU_Index_OAS"]].tail())

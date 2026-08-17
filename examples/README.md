@@ -328,10 +328,10 @@ Regime Detection:
 - [Environment Variables](../.env.example)
 
 ### Source Code
-- [Bloomberg API Source](../_data_sources.py) - BloombergAPIDataSource class
-- [Excel Source](../_data_sources.py) - BloombergExcelDataSource class
-- [Hybrid Source](../_data_sources.py) - HybridBloombergDataSource class
-- [Mixed Portfolio Source](../_data_sources.py) - MixedPortfolioDataSource class
+- [Bloomberg API Source](../data_sources.py) - BloombergAPIDataSource class
+- [Excel Source](../data_sources.py) - BloombergExcelDataSource class
+- [Hybrid Source](../data_sources.py) - HybridBloombergDataSource class
+- [Mixed Portfolio Source](../data_sources.py) - MixedPortfolioDataSource class
 
 ---
 

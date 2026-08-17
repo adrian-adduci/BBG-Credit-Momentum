@@ -30,7 +30,7 @@ from urllib3.util.retry import Retry
 # Add parent directory to path to import DataSource
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.absolute()))
-from _data_sources import DataSource
+from data_sources import DataSource
 
 # Set up structured logging
 import sys

@@ -22,7 +22,7 @@ import numpy as np
 from logging_setup import get_logger
 
 path = pathlib.Path(__file__).parent.absolute()
-logger = get_logger("_data_sources", "_data_sources.log")
+logger = get_logger("data_sources", "data_sources.log")
 
 ################################################################################
 # Security Definition Classes
@@ -1182,7 +1182,7 @@ class MixedPortfolioDataSource(DataSource):
         # Determine data source based on security source
         if source_type in ["binance", "coinbase", "kraken", "bybit", "okx"]:
             # Crypto exchange
-            from _crypto_data_sources import CryptoExchangeDataSource
+            from crypto_data_sources import CryptoExchangeDataSource
             source = CryptoExchangeDataSource(
                 exchange_id=source_type,
                 symbols=[security.identifier],
@@ -1237,7 +1237,7 @@ class MixedPortfolioDataSource(DataSource):
 
         elif source_type == "blockchain":
             # Blockchain on-chain metrics
-            from data_sources.blockchain_provider import BlockchainDataSource
+            from blockchain.providers import BlockchainDataSource
             provider = security.metadata.get("provider", "glassnode")
             asset = security.identifier.split("/")[0] if "/" in security.identifier else security.identifier
             source = BlockchainDataSource(
@@ -1442,16 +1442,16 @@ class DataSourceFactory:
         elif source_type == "mixed_portfolio":
             return MixedPortfolioDataSource(**kwargs)
         elif source_type == "crypto":
-            from _crypto_data_sources import CryptoExchangeDataSource
+            from crypto_data_sources import CryptoExchangeDataSource
             return CryptoExchangeDataSource(**kwargs)
         elif source_type == "crypto_ws":
-            from _crypto_data_sources import CryptoWebSocketDataSource
+            from crypto_data_sources import CryptoWebSocketDataSource
             return CryptoWebSocketDataSource(**kwargs)
         elif source_type == "crypto_agg":
-            from _crypto_data_sources import CryptoAggregatorDataSource
+            from crypto_data_sources import CryptoAggregatorDataSource
             return CryptoAggregatorDataSource(**kwargs)
         elif source_type == "blockchain":
-            from data_sources.blockchain_provider import BlockchainDataSource
+            from blockchain.providers import BlockchainDataSource
             return BlockchainDataSource(**kwargs)
         else:
             raise ValueError(

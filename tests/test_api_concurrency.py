@@ -87,7 +87,7 @@ class TestApiStaysResponsive(unittest.TestCase):
                 return response, marks
 
         with patch(
-            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            "data_sources.MixedPortfolioDataSource._load_security_data",
             side_effect=_blocking_stall,
         ):
             response, marks = self._run(scenario())
@@ -123,7 +123,7 @@ class TestApiStaysResponsive(unittest.TestCase):
                 return time.monotonic() - started
 
         with patch(
-            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            "data_sources.MixedPortfolioDataSource._load_security_data",
             side_effect=_blocking_stall,
         ):
             elapsed = self._run(scenario())

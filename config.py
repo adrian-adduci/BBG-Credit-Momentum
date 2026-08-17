@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-logger = logging.getLogger("_config")
+logger = logging.getLogger("config")
 
 ################################################################################
 # Configuration Class
@@ -290,7 +290,7 @@ def get_config() -> Config:
         Config: Global configuration object
 
     Example:
-        >>> from _config import get_config
+        >>> from config import get_config
         >>> cfg = get_config()
         >>> print(cfg.get("model.type"))
     """
