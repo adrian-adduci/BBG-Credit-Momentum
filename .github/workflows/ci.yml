@@ -1,0 +1,130 @@
+name: CI
+
+# This workflow takes no untrusted input: nothing from github.event.* reaches a
+# run: block. The only expressions used are matrix.python-version (in `name:`
+# and `with:`) and github.ref (in a concurrency key), neither of which is
+# interpolated into a shell command.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13+ is deliberately excluded: the pinned numpy==1.26.4 publishes no
+        # cp313 wheel, so installation falls back to a source build and fails.
+        python-version: ["3.11"]
+
+    env:
+      # No display on the runner. The importance and ppscore charts render
+      # during the tests, so pin a headless backend rather than rely on
+      # matplotlib inferring one.
+      MPLBACKEND: Agg
+      # _models.py sets this at import time; keep it sane for a 2-core runner.
+      NUMEXPR_MAX_THREADS: "2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # requirements.txt is not installable as written, and this step is much
+      # of the reason CI is worth having -- it would have caught both problems
+      # on day one:
+      #
+      #   * ppscore==1.3.0 declares pandas<2 while the file pins pandas==2.2.3,
+      #     so a resolver either refuses the file outright or silently
+      #     downgrades pandas. The constraint is stale: ppscore works correctly
+      #     against pandas 2.2.3.
+      #   * ppscore's legacy setup.py imports pkg_resources, removed in
+      #     setuptools 81+, so it must build against older setuptools with
+      #     build isolation disabled.
+      #
+      # Installing ppscore last with --no-deps leaves the pinned pandas alone.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          grep -v '^ppscore' requirements.txt > /tmp/requirements-core.txt
+          pip install -r /tmp/requirements-core.txt \
+                      'pytest==8.3.3' \
+                      'httpx==0.27.2' \
+                      'setuptools<81'
+          pip install --no-build-isolation --no-deps 'ppscore==1.3.0'
+
+      # A dependency set that resolves but does not import is still broken.
+      - name: Verify the environment
+        run: |
+          python - <<'PY'
+          import fastapi, httpx, numpy, pandas, ppscore, sklearn, streamlit, xgboost
+          import ccxt
+          print("pandas ", pandas.__version__)
+          print("numpy  ", numpy.__version__)
+          print("sklearn", sklearn.__version__)
+          print("xgboost", xgboost.__version__)
+          print("httpx  ", httpx.__version__)
+          assert pandas.__version__.startswith("2."), (
+              f"ppscore silently downgraded pandas to {pandas.__version__}"
+          )
+          PY
+
+      # A fresh clone must import with no pre-existing logs/ directory. Every
+      # module used to construct a logging.FileHandler at import time pointing
+      # into the gitignored logs/, so `import _models` raised FileNotFoundError
+      # before a single line of user code ran.
+      - name: Import on a clean clone
+        run: |
+          if [ -d logs ]; then
+            echo "::error::logs/ is present in a fresh checkout; it must stay untracked"
+            exit 1
+          fi
+          python -c "import _models, _preprocessing, _data_sources, forecasting, backtest"
+          test -d logs || (echo "::error::logs/ was not created on demand" && exit 1)
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --durations=10
+
+      # Running the suite used to overwrite the tracked charts under _img/.
+      # tests/conftest.py redirects plot output to a temp directory; this proves
+      # it stays that way.
+      - name: Assert the suite left the tree clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::The test suite modified tracked files"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "Working tree clean after tests."
+
+      # The README's headline claim is that the model does not beat a random
+      # walk. Running the backtest here means a change that breaks the CLI, or
+      # that quietly turns the result positive, surfaces in CI.
+      - name: Smoke-test the backtest CLI
+        run: |
+          python backtest.py data/Economic_Data_2020_08_01.xlsx \
+            --target LF98TRUU_Index_OAS \
+            --horizons 1 30 \
+            --splits 3

@@ -4,7 +4,8 @@
 
 A Streamlit application that analyzes economic data to identify momentum drivers for credit trading using XGBoost and sklearn models.
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/adrian-adduci/BBG-Credit-Momentum/actions/workflows/ci.yml/badge.svg)](https://github.com/adrian-adduci/BBG-Credit-Momentum/actions/workflows/ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -19,6 +20,7 @@ A Streamlit application that analyzes economic data to identify momentum drivers
 - [Data Sources](#data-sources)
 - [Model Details](#model-details)
 - [Forecasting Methodology](#forecasting-methodology)
+- [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Recent Improvements](#recent-improvements)
 - [Contributing](#contributing)
@@ -595,6 +597,20 @@ model = _build_model(pipeline)
 mae, mse, rmse = model._return_mean_error_metrics()
 print(f"RMSE: {rmse:.4f}")
 ```
+
+### Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`master` and on every pull request. Beyond the test suite it checks four things
+that were previously only ever found by hand:
+
+| Step | Guards against |
+|---|---|
+| Install dependencies | `requirements.txt` not being installable as written |
+| Verify the environment | a dependency set that resolves but does not import, and ppscore silently downgrading pandas |
+| Import on a clean clone | modules that crash on import because `logs/` does not exist |
+| Assert the tree is clean | the test suite overwriting tracked chart assets in `_img/` |
+| Smoke-test the backtest CLI | a change that breaks the CLI or quietly turns the no-skill result positive |
 
 ### Unit Tests
 
