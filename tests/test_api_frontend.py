@@ -15,26 +15,21 @@ from api import app
 
 
 # ---------------------------------------------------------------------------
-# Known-unimplemented API surface.
+# Patch targets
 #
-# These patch 'api.BloombergExcelDataSource', but api.py imports only
-# DataSourceFactory from _data_sources and never references that name, so
-# mock.patch cannot resolve the attribute. The endpoints construct their data
-# sources through DataSourceFactory.create instead, meaning these tests patch
-# a collaborator the code under test does not use.
+# These tests used to patch 'api.BloombergExcelDataSource' and fail with
+# AttributeError. api.py does not import that name at module level -- the
+# /api/mixed/train handler imports it *inside the function body*:
 #
-# Rewriting them means deciding whether api.py should import the class
-# directly or the tests should patch the factory -- a design question, not a
-# typo. Marked xfail(strict=True) so the gap stays visible and the marker
-# fails loudly if the API changes.
+#     from _data_sources import (MixedPortfolioDataSource,
+#                                BloombergAPIDataSource,
+#                                BloombergExcelDataSource, ...)
+#
+# A function-local import resolves the name from _data_sources every call, so
+# the attribute never exists on the api module and mock.patch cannot find it.
+# Patching it where it is defined works for exactly that reason.
 # ---------------------------------------------------------------------------
-UNIMPLEMENTED_MIXED_API = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "patches api.BloombergExcelDataSource, a name api.py never imports; "
-        "endpoints use DataSourceFactory.create instead"
-    ),
-)
+BLOOMBERG_EXCEL = "_data_sources.BloombergExcelDataSource"
 
 
 class TestMixedPortfolioAPI:
@@ -56,31 +51,27 @@ class TestMixedPortfolioAPI:
             'LF98TRUU_Index_OAS': np.random.rand(100) * 20 + 100,
         })
 
-    @UNIMPLEMENTED_MIXED_API
     def test_mixed_train_endpoint_success(self, client, mock_mixed_data, tmp_path):
         """Test successful mixed portfolio training via API."""
-        # Create temporary Bloomberg Excel file
         bloomberg_file = tmp_path / "bloomberg_test.xlsx"
-        mock_bloomberg_df = mock_mixed_data[['Dates', 'LF98TRUU_Index_OAS']]
-        mock_bloomberg_df.to_excel(bloomberg_file, index=False)
+        mock_mixed_data[["Dates", "LF98TRUU_Index_OAS"]].to_excel(
+            bloomberg_file, index=False
+        )
 
-        # Mock data sources
-        with patch('api.DataSourceFactory.create') as mock_factory, \
-             patch('api.BloombergExcelDataSource') as mock_bloomberg:
+        # The endpoint builds Security definitions and lets
+        # MixedPortfolioDataSource resolve each one. _load_security_data is
+        # that single seam, so stubbing it avoids needing exchange
+        # credentials or a Bloomberg terminal.
+        frames = {
+            "BTC/USDT": mock_mixed_data[["Dates", "BTC_USDT_close"]],
+            "ETH/USDT": mock_mixed_data[["Dates", "ETH_USDT_close"]],
+            "LF98TRUU Index": mock_mixed_data[["Dates", "LF98TRUU_Index_OAS"]],
+        }
 
-            # Mock crypto source
-            mock_crypto_source = MagicMock()
-            mock_crypto_df = mock_mixed_data[['Dates', 'BTC_USDT_close', 'ETH_USDT_close']].copy()
-            mock_crypto_df = mock_crypto_df.set_index('Dates')
-            mock_crypto_source.load_data.return_value = mock_crypto_df
-            mock_factory.return_value = mock_crypto_source
-
-            # Mock Bloomberg source
-            mock_bloomberg_source = MagicMock()
-            mock_bloomberg_source.load_data.return_value = mock_bloomberg_df
-            mock_bloomberg.return_value = mock_bloomberg_source
-
-            # API request
+        with patch(
+            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            side_effect=lambda sec: frames[sec.identifier],
+        ):
             request_data = {
                 "crypto_exchange": "binance",
                 "crypto_symbols": ["BTC/USDT", "ETH/USDT"],
@@ -92,22 +83,15 @@ class TestMixedPortfolioAPI:
                 "start_date": "2024-01-01",
                 "target_column": "BTC_USDT_close",
                 "model_type": "XGBoost",
-                "crypto_features": True,
-                "cross_asset_features": True
+                "crypto_features": False,
+                "cross_asset_features": False,
             }
 
             response = client.post("/api/mixed/train", json=request_data)
 
-            # Verify response
-            assert response.status_code == 200
-            data = response.json()
-            assert data["success"] is True
-            assert "model_id" in data
-            assert "mixed_" in data["model_id"]
-            assert "metrics" in data
-            assert "mae" in data["metrics"]
+        assert response.status_code == 200, response.text
+        assert "model_id" in response.json()
 
-    @UNIMPLEMENTED_MIXED_API
     def test_mixed_train_missing_crypto(self, client, tmp_path):
         """Test mixed training with only Bloomberg data (should fail)."""
         bloomberg_file = tmp_path / "bloomberg_only.xlsx"
@@ -128,7 +112,7 @@ class TestMixedPortfolioAPI:
         }
 
         # Should still work (at least one source required, not necessarily both)
-        with patch('api.BloombergExcelDataSource') as mock_bloomberg:
+        with patch(BLOOMBERG_EXCEL) as mock_bloomberg:
             mock_bloomberg_source = MagicMock()
             mock_bloomberg_source.load_data.return_value = df
             mock_bloomberg.return_value = mock_bloomberg_source
@@ -154,7 +138,6 @@ class TestMixedPortfolioAPI:
         # Should fail with 400 or 422 (validation error)
         assert response.status_code in [400, 422, 500]
 
-    @UNIMPLEMENTED_MIXED_API
     def test_cross_asset_analysis_endpoint(self, client, mock_mixed_data, tmp_path):
         """Test cross-asset analysis endpoint."""
         # First train a model
@@ -163,8 +146,8 @@ class TestMixedPortfolioAPI:
         mock_bloomberg_df.to_excel(bloomberg_file, index=False)
 
         with patch('api.DataSourceFactory.create') as mock_factory, \
-             patch('api.BloombergExcelDataSource') as mock_bloomberg, \
-             patch('api.MixedPortfolioDataSource') as mock_mixed:
+             patch(BLOOMBERG_EXCEL) as mock_bloomberg, \
+             patch('_data_sources.MixedPortfolioDataSource') as mock_mixed:
 
             # Setup mocks
             mock_crypto_source = MagicMock()

@@ -650,7 +650,7 @@ async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
         start_time = datetime.now()
         logger.info(f"Mixed portfolio training: {request.crypto_symbols} + {request.bloomberg_securities}")
 
-        from _data_sources import MixedPortfolioDataSource, BloombergAPIDataSource, BloombergExcelDataSource, HybridBloombergDataSource
+        from _data_sources import MixedPortfolioDataSource, Security
 
         # Parse dates
         start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
@@ -660,63 +660,74 @@ async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
             else datetime.now()
         )
 
-        # Build list of data sources
-        sources = []
+        # Build the security universe.
+        #
+        # MixedPortfolioDataSource takes Security *definitions* and resolves
+        # each through _load_security_data(); it does not accept pre-built
+        # data-source objects. This endpoint previously passed sources=[...],
+        # which is not a parameter it has, so every request raised TypeError
+        # and returned 500. The endpoint has never worked.
+        securities = []
 
-        # Add crypto sources
         if request.crypto_symbols and request.crypto_exchange:
-            crypto_source = DataSourceFactory.create(
-                "crypto",
-                exchange_id=request.crypto_exchange,
-                symbols=request.crypto_symbols,
-                timeframe=request.crypto_timeframe,
-                start_date=start_date,
-                end_date=end_date
-            )
-            sources.append(crypto_source)
-            logger.info(f"Added crypto source: {request.crypto_exchange} with {len(request.crypto_symbols)} symbols")
-
-        # Add Bloomberg sources
-        if request.bloomberg_securities:
-            if request.bloomberg_source == "api":
-                bloomberg_source = BloombergAPIDataSource(
-                    securities=request.bloomberg_securities,
-                    fields=request.bloomberg_fields,
-                    start_date=start_date,
-                    end_date=end_date
+            for symbol in request.crypto_symbols:
+                securities.append(
+                    Security(
+                        identifier=symbol,
+                        security_type="crypto_spot",
+                        source=request.crypto_exchange,
+                        fields=["close"],
+                        metadata={"timeframe": request.crypto_timeframe},
+                    )
                 )
+            logger.info(
+                f"Added {len(request.crypto_symbols)} crypto securities "
+                f"from {request.crypto_exchange}"
+            )
+
+        if request.bloomberg_securities:
+            # Each bloomberg_source mode maps onto a source type that
+            # _load_security_data already dispatches on.
+            if request.bloomberg_source == "api":
+                source_type, metadata = "bloomberg", {}
             elif request.bloomberg_source == "excel":
                 if not request.bloomberg_excel_path:
                     raise HTTPException(
                         status_code=400,
                         detail="bloomberg_excel_path required when bloomberg_source='excel'"
                     )
-                bloomberg_source = BloombergExcelDataSource(
-                    file_path=request.bloomberg_excel_path
-                )
+                source_type = "bloomberg_excel"
+                metadata = {"file_path": request.bloomberg_excel_path}
             elif request.bloomberg_source == "hybrid":
                 if not request.bloomberg_excel_path:
                     raise HTTPException(
                         status_code=400,
                         detail="bloomberg_excel_path required for hybrid mode fallback"
                     )
-                bloomberg_source = HybridBloombergDataSource(
-                    securities=request.bloomberg_securities,
-                    fields=request.bloomberg_fields,
-                    start_date=start_date,
-                    end_date=end_date,
-                    excel_fallback_path=request.bloomberg_excel_path
-                )
+                source_type = "bloomberg"
+                metadata = {"excel_fallback": request.bloomberg_excel_path}
             else:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid bloomberg_source: {request.bloomberg_source}"
                 )
 
-            sources.append(bloomberg_source)
-            logger.info(f"Added Bloomberg source: {request.bloomberg_source}")
+            for identifier in request.bloomberg_securities:
+                securities.append(
+                    Security(
+                        identifier=identifier,
+                        security_type="credit_index",
+                        source=source_type,
+                        fields=request.bloomberg_fields,
+                        metadata=dict(metadata),
+                    )
+                )
+            logger.info(
+                f"Added {len(request.bloomberg_securities)} Bloomberg securities "
+                f"({request.bloomberg_source})"
+            )
 
-        if not sources:
+        if not securities:
             raise HTTPException(
                 status_code=400,
                 detail="At least one data source (crypto or Bloomberg) must be specified"
@@ -724,10 +735,12 @@ async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
 
         # Load and merge data
         mixed_source = MixedPortfolioDataSource(
-            sources=sources,
-            alignment='outer',  # Include all dates from all sources
-            fill_method='ffill',
-            fill_limit=5
+            securities=securities,
+            start_date=start_date,
+            end_date=end_date,
+            alignment_method="outer",  # Include all dates from all sources
+            fill_method="ffill",
+            fill_limit=5,
         )
         df = mixed_source.load_data()
         logger.info(f"Loaded mixed portfolio data: {len(df)} rows, {len(df.columns)} columns")

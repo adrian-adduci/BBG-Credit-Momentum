@@ -16,37 +16,64 @@ import _models
 from _data_sources import (
     MixedPortfolioDataSource,
     BloombergExcelDataSource,
-    DataSourceFactory
+    DataSourceFactory,
+    Security,
 )
 
 
 # ---------------------------------------------------------------------------
-# Known-unimplemented API surface.
+# Helpers for driving the real MixedPortfolioDataSource API.
 #
-# The tests below were written against a MixedPortfolioDataSource API that was
-# never built. They landed in 0f93e5c ("Complete phases 4-6") and have never
-# passed. Two concrete mismatches:
+# These tests previously targeted an API that was never built: they patched
+# _data_sources.CryptoExchangeDataSource (that class lives in
+# _crypto_data_sources.py) and constructed
+# MixedPortfolioDataSource(sources=[...], alignment=...).
 #
-#   1. They patch '_data_sources.CryptoExchangeDataSource', but that class
-#      lives in _crypto_data_sources.py and _data_sources.py does not import
-#      it, so mock.patch cannot resolve the attribute.
-#
-#   2. They construct MixedPortfolioDataSource(sources=[...], alignment=...).
-#      The real signature is (securities=..., alignment_method=...), and it
-#      takes security *definitions* rather than data-source objects -- a
-#      different design, not a renamed argument.
-#
-# Marked xfail(strict=True) rather than deleted so the gap stays visible and
-# so the marker fails loudly if the API is ever implemented.
+# The real constructor takes Security *definitions* plus a date range, and
+# load_data() resolves each one through self._load_security_data(). That
+# method is the seam, so it is what these tests patch -- no network, no
+# exchange credentials, and no dependence on which concrete source class a
+# given security happens to route to.
 # ---------------------------------------------------------------------------
-UNIMPLEMENTED_MIXED_API = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MixedPortfolioDataSource(sources=..., alignment=...) and "
-        "_data_sources.CryptoExchangeDataSource do not exist; tests were "
-        "written against an unbuilt API"
-    ),
-)
+START = datetime(2024, 1, 1)
+END = datetime(2024, 12, 31)
+
+
+def crypto_security(identifier="BTC/USDT"):
+    return Security(
+        identifier=identifier,
+        security_type="crypto_spot",
+        source="binance",
+        fields=["close"],
+    )
+
+
+def credit_security(identifier="LF98TRUU Index"):
+    return Security(
+        identifier=identifier,
+        security_type="credit_index",
+        source="bloomberg",
+        fields=["OAS"],
+    )
+
+
+def mixed_source(securities, **kwargs):
+    kwargs.setdefault("alignment_method", "outer")
+    kwargs.setdefault("validate", False)
+    return MixedPortfolioDataSource(
+        securities=securities, start_date=START, end_date=END, **kwargs
+    )
+
+
+def load_with(securities, frames_by_identifier, **kwargs):
+    """Run load_data() with _load_security_data stubbed per security."""
+    source = mixed_source(securities, **kwargs)
+    with patch.object(
+        MixedPortfolioDataSource,
+        "_load_security_data",
+        side_effect=lambda sec: frames_by_identifier[sec.identifier],
+    ):
+        return source.load_data()
 
 
 class TestMixedPortfolioIntegration:
@@ -92,38 +119,32 @@ class TestMixedPortfolioIntegration:
             'LUACTRUU_Index_DTS': np.random.rand(n) * 2 + 4.5,
         })
 
-    @UNIMPLEMENTED_MIXED_API
-    def test_mixed_portfolio_data_loading(self, mock_crypto_data, mock_bloomberg_data, tmp_path):
-        """Test loading data from multiple sources and merging."""
-        # Save Bloomberg data to temporary Excel file
-        bloomberg_file = tmp_path / "bloomberg_test.xlsx"
-        mock_bloomberg_data.to_excel(bloomberg_file, index=False)
+    def test_mixed_portfolio_data_loading(self, mock_crypto_data, mock_bloomberg_data):
+        """Securities from different sources merge into one aligned frame."""
+        crypto = crypto_security()
+        credit = credit_security()
 
-        # Mock crypto data source
-        with patch('_data_sources.CryptoExchangeDataSource') as MockCrypto:
-            mock_crypto_source = MockCrypto.return_value
-            mock_crypto_source.load_data.return_value = mock_crypto_data
+        crypto_frame = mock_crypto_data.reset_index().rename(
+            columns={"timestamp": "Dates"}
+        )[["Dates", "BTC_USDT_close", "ETH_USDT_close"]]
+        credit_frame = mock_bloomberg_data[
+            ["Dates", "LF98TRUU_Index_OAS", "LUACTRUU_Index_DTS"]
+        ]
 
-            # Create Bloomberg source
-            bloomberg_source = BloombergExcelDataSource(file_path=str(bloomberg_file))
+        df = load_with(
+            [crypto, credit],
+            {crypto.identifier: crypto_frame, credit.identifier: credit_frame},
+        )
 
-            # Create mixed portfolio source
-            mixed_source = MixedPortfolioDataSource(
-                sources=[mock_crypto_source, bloomberg_source],
-                alignment='outer'
-            )
+        for column in (
+            "BTC_USDT_close",
+            "ETH_USDT_close",
+            "LF98TRUU_Index_OAS",
+            "LUACTRUU_Index_DTS",
+        ):
+            assert column in df.columns
 
-            # Load data
-            df = mixed_source.load_data()
-
-            # Verify merged data
-            assert 'BTC_USDT_close' in df.columns
-            assert 'ETH_USDT_close' in df.columns
-            assert 'LF98TRUU_Index_OAS' in df.columns
-            assert 'LUACTRUU_Index_DTS' in df.columns
-
-            # Should have dates from both sources (may have NaN for non-overlapping dates)
-            assert len(df) > 0
+        assert len(df) > 0
 
     def test_mixed_portfolio_preprocessing(self, mock_crypto_data, mock_bloomberg_data, tmp_path):
         """Test preprocessing with cross-asset features enabled."""
@@ -292,81 +313,91 @@ class TestDataAlignment:
             'LF98TRUU_Index_OAS': np.random.rand(len(dates)) * 10 + 100,
         })
 
-    @UNIMPLEMENTED_MIXED_API
-    def test_outer_join_alignment(self, crypto_24_7_data, credit_weekday_data, tmp_path):
-        """Test outer join keeps all dates from both sources."""
-        bloomberg_file = tmp_path / "credit_weekday.xlsx"
-        credit_weekday_data.to_excel(bloomberg_file, index=False)
+    def test_outer_join_alignment(self, crypto_24_7_data, credit_weekday_data):
+        """Outer join keeps every date from both calendars."""
+        crypto = crypto_security()
+        credit = credit_security()
+        crypto_frame = crypto_24_7_data.reset_index().rename(
+            columns={"timestamp": "Dates"}
+        )
 
-        with patch('_data_sources.CryptoExchangeDataSource') as MockCrypto:
-            mock_crypto_source = MockCrypto.return_value
-            mock_crypto_source.load_data.return_value = crypto_24_7_data
+        df = load_with(
+            [crypto, credit],
+            {crypto.identifier: crypto_frame, credit.identifier: credit_weekday_data},
+            alignment_method="outer",
+        )
 
-            bloomberg_source = BloombergExcelDataSource(file_path=str(bloomberg_file))
+        # Crypto trades weekends; credit does not. An outer join must retain
+        # at least the union's larger side.
+        assert len(df) >= len(credit_weekday_data)
+        assert len(df) >= len(crypto_frame)
 
-            mixed_source = MixedPortfolioDataSource(
-                sources=[mock_crypto_source, bloomberg_source],
-                alignment='outer'
-            )
+    def test_inner_join_alignment(self, crypto_24_7_data, credit_weekday_data):
+        """Inner join keeps only dates present in both calendars."""
+        crypto = crypto_security()
+        credit = credit_security()
+        crypto_frame = crypto_24_7_data.reset_index().rename(
+            columns={"timestamp": "Dates"}
+        )
 
-            df = mixed_source.load_data()
+        df = load_with(
+            [crypto, credit],
+            {crypto.identifier: crypto_frame, credit.identifier: credit_weekday_data},
+            alignment_method="inner",
+        )
 
-            # Should include weekend dates from crypto (with NaN for credit)
-            assert len(df) >= len(credit_weekday_data)
+        assert len(df) <= len(credit_weekday_data)
 
-    @UNIMPLEMENTED_MIXED_API
-    def test_inner_join_alignment(self, crypto_24_7_data, credit_weekday_data, tmp_path):
-        """Test inner join keeps only overlapping dates."""
-        bloomberg_file = tmp_path / "credit_weekday.xlsx"
-        credit_weekday_data.to_excel(bloomberg_file, index=False)
+    def test_inner_join_is_a_subset_of_outer_join(
+        self, crypto_24_7_data, credit_weekday_data
+    ):
+        """The two alignment modes must be consistent with each other."""
+        crypto = crypto_security()
+        credit = credit_security()
+        crypto_frame = crypto_24_7_data.reset_index().rename(
+            columns={"timestamp": "Dates"}
+        )
+        frames = {
+            crypto.identifier: crypto_frame,
+            credit.identifier: credit_weekday_data,
+        }
 
-        with patch('_data_sources.CryptoExchangeDataSource') as MockCrypto:
-            mock_crypto_source = MockCrypto.return_value
-            mock_crypto_source.load_data.return_value = crypto_24_7_data
+        outer = load_with([crypto, credit], frames, alignment_method="outer")
+        inner = load_with([crypto, credit], frames, alignment_method="inner")
 
-            bloomberg_source = BloombergExcelDataSource(file_path=str(bloomberg_file))
-
-            mixed_source = MixedPortfolioDataSource(
-                sources=[mock_crypto_source, bloomberg_source],
-                alignment='inner'
-            )
-
-            df = mixed_source.load_data()
-
-            # Should only include dates present in both
-            # (weekdays only, and matching hours)
-            assert len(df) <= len(credit_weekday_data)
-
-            # No NaN in key columns (since inner join)
-            # (Note: may still have NaN from forward fill limits)
+        assert len(inner) <= len(outer)
+        assert set(inner["Dates"]).issubset(set(outer["Dates"]))
 
 
 class TestErrorHandling:
     """Test error handling in mixed portfolio workflow."""
 
-    @UNIMPLEMENTED_MIXED_API
-    def test_no_data_sources(self):
-        """Test error when no data sources provided."""
-        with pytest.raises(ValueError, match="At least one data source"):
-            mixed_source = MixedPortfolioDataSource(sources=[])
+    def test_no_securities_raises(self):
+        """An empty universe is rejected when loading, not at construction."""
+        source = mixed_source([])
 
-    @UNIMPLEMENTED_MIXED_API
-    def test_incompatible_data_types(self, tmp_path):
-        """Test handling of incompatible data from different sources."""
-        # Create Bloomberg data with different structure
-        df_bad = pd.DataFrame({
-            'InvalidColumn': [1, 2, 3]
-        })
+        with pytest.raises(ValueError, match="No securities provided"):
+            source.load_data()
 
-        bad_file = tmp_path / "bad_bloomberg.xlsx"
-        df_bad.to_excel(bad_file, index=False)
+    def test_a_failing_security_does_not_pass_silently(self):
+        """If every source fails, load_data must raise rather than return empty."""
+        crypto = crypto_security()
+        source = mixed_source([crypto])
 
-        bloomberg_source = BloombergExcelDataSource(file_path=str(bad_file))
+        with patch.object(
+            MixedPortfolioDataSource,
+            "_load_security_data",
+            side_effect=KeyError("Dates"),
+        ), pytest.raises((ValueError, KeyError)):
+            source.load_data()
 
-        # Should handle missing 'Dates' column gracefully
+    def test_frame_missing_dates_column_is_rejected(self, tmp_path):
+        """A source returning a frame with no 'Dates' column cannot be merged."""
+        credit = credit_security()
+        malformed = pd.DataFrame({"InvalidColumn": [1, 2, 3]})
+
         with pytest.raises((ValueError, KeyError)):
-            mixed_source = MixedPortfolioDataSource(sources=[bloomberg_source])
-            df = mixed_source.load_data()
+            load_with([credit], {credit.identifier: malformed})
 
     def test_cross_asset_features_with_only_crypto(self, tmp_path):
         """Test cross-asset features when only crypto data present."""
