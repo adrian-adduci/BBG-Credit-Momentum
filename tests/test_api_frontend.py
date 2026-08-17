@@ -92,6 +92,56 @@ class TestMixedPortfolioAPI:
         assert response.status_code == 200, response.text
         assert "model_id" in response.json()
 
+    def test_mixed_train_reports_feature_importance(
+        self, client, mock_mixed_data, tmp_path
+    ):
+        """Feature importance must be populated, not silently swallowed.
+
+        The handler wraps its importance calculation in `except Exception` and
+        only logs a warning. _return_features_of_importance did not exist, so
+        every response carried feature_importance: null and no test noticed.
+        """
+        bloomberg_file = tmp_path / "bloomberg_fi.xlsx"
+        mock_mixed_data[["Dates", "LF98TRUU_Index_OAS"]].to_excel(
+            bloomberg_file, index=False
+        )
+
+        frames = {
+            "BTC/USDT": mock_mixed_data[["Dates", "BTC_USDT_close"]],
+            "ETH/USDT": mock_mixed_data[["Dates", "ETH_USDT_close"]],
+            "LF98TRUU Index": mock_mixed_data[["Dates", "LF98TRUU_Index_OAS"]],
+        }
+
+        with patch(
+            "_data_sources.MixedPortfolioDataSource._load_security_data",
+            side_effect=lambda sec: frames[sec.identifier],
+        ):
+            response = client.post(
+                "/api/mixed/train",
+                json={
+                    "crypto_exchange": "binance",
+                    "crypto_symbols": ["BTC/USDT", "ETH/USDT"],
+                    "crypto_timeframe": "1h",
+                    "bloomberg_securities": ["LF98TRUU Index"],
+                    "bloomberg_fields": ["OAS"],
+                    "bloomberg_source": "excel",
+                    "bloomberg_excel_path": str(bloomberg_file),
+                    "start_date": "2024-01-01",
+                    "target_column": "BTC_USDT_close",
+                    "model_type": "XGBoost",
+                    "crypto_features": False,
+                    "cross_asset_features": False,
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload.get("feature_importance") is not None, (
+            "feature_importance was null -- the handler's except-and-warn "
+            "block is hiding a failure again"
+        )
+        assert len(payload["feature_importance"]) > 0
+
     def test_mixed_train_missing_crypto(self, client, tmp_path):
         """Test mixed training with only Bloomberg data (should fail)."""
         bloomberg_file = tmp_path / "bloomberg_only.xlsx"

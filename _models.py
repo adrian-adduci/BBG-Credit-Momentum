@@ -180,35 +180,62 @@ class _build_model:
         Uses the ppscore library to identify which features have the highest
         predictive power for the target variable at a specific forecast horizon.
 
+        Scores are taken against the *future* label at ``forecast_range`` days
+        ahead. Scoring against the contemporaneous target would measure a
+        nowcast, and since the raw target is deliberately absent from the
+        feature matrix, naming it as ``y`` also raised a ValueError inside
+        ppscore.
+
         Args:
             forecast_range: Number of days ahead to forecast (default: 30)
             plot: Whether to display the plot (default: True)
 
+        Returns:
+            pd.DataFrame: The ppscore predictors table, ranked by score. Its
+            ``y`` column holds the forward-shifted label that was scored.
+
         Creates:
-            PNG file saved to _img/predictive_power.png showing bar chart
-            of features with ppscore > 0.5
+            PNG file saved to ``<plot_dir>/predictive_power.png``.
         """
 
         all_data, X_data, Y_data = self.pipeline._return_data_with_dh_actuals(
-            forecast_range
+            days_ahead=forecast_range
         )
 
         pipeline_target = self.pipeline._return_target_col()
+        label_col = f"{pipeline_target}_{forecast_range}D_Ahead_Actual"
 
-        feats = pd.DataFrame(data=X_data[forecast_range])
+        # ppscore needs the scored column inside the frame it is handed, so
+        # attach the future label to the features rather than the raw target.
+        feats = pd.DataFrame(data=X_data[forecast_range]).copy()
+        feats[label_col] = Y_data[forecast_range][label_col]
 
-        predictors_df = pps.predictors(feats, y=pipeline_target)
+        predictors_df = pps.predictors(feats, y=label_col)
 
-        predictors_df = predictors_df[predictors_df["ppscore"] > 0.5]
+        strong = predictors_df[predictors_df["ppscore"] > 0.5]
 
         f, ax = plt.subplots(figsize=(16, 5))
         ax.set_title(
             f"Predicative Power for {pipeline_target} at {forecast_range} Days"
         )
-        sns.barplot(data=predictors_df, y="x", x="ppscore", palette="rocket")
+        if not strong.empty:
+            sns.barplot(data=strong, y="x", x="ppscore", palette="rocket")
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                f"No feature scored above 0.5 at {forecast_range} days",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
         plt.savefig(self.plot_dir / "predictive_power.png", bbox_inches="tight")
         if plot:
             f.show()
+        else:
+            plt.close(f)
+
+        return predictors_df
 
     def _feature_importance(self, forecast_range=30, plot=True):
         """
@@ -383,6 +410,53 @@ class _build_model:
             "Mean Squared Error"
         )
         return MAE, MSE, RMSE
+
+    def _return_features_of_importance(
+        self, forecast_day=30, threshold=0.05
+    ):
+        """
+        Return the features that matter at a given forecast horizon.
+
+        This method is called by ``api.py`` in both training endpoints but was
+        never implemented. Because those call sites catch every exception and
+        only log a warning, the API returned ``feature_importance: null`` on
+        every request instead of surfacing the AttributeError.
+
+        Importances for the requested day are computed on demand if
+        ``_feature_importance`` has not already run.
+
+        Args:
+            forecast_day: Forecast horizon in days (default: 30)
+            threshold: Minimum importance to report (default: 0.05)
+
+        Returns:
+            dict: ``{feature_name: importance}`` ranked highest first. Empty if
+            no feature clears ``threshold``.
+
+        Raises:
+            ValueError: If ``forecast_day`` < 1.
+        """
+        if not isinstance(forecast_day, (int, np.integer)) or forecast_day < 1:
+            raise ValueError(
+                f"forecast_day must be an integer >= 1, got {forecast_day!r}"
+            )
+
+        if forecast_day not in self.features_over_time_dict:
+            self._feature_importance(forecast_range=forecast_day, plot=False)
+
+        if forecast_day not in self.features_over_time_dict:
+            return {}
+
+        scored = {}
+        for feature, values in self.features_over_time_dict[forecast_day].items():
+            if not values:
+                continue
+            # Values accumulate across repeated runs; the latest is current.
+            importance = float(values[-1])
+            if importance > threshold:
+                scored[feature] = importance
+
+        return dict(sorted(scored.items(), key=lambda kv: kv[1], reverse=True))
 
     def _return_squared_errors(self):
         """Per-prediction squared residuals on the held-out set."""

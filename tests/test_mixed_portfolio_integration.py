@@ -270,25 +270,31 @@ class TestMixedPortfolioIntegration:
 
         model = _models._build_model(pipeline, model_name='XGBoost')
 
-        # Calculate feature importance
-        try:
-            model.predictive_power(forecast_range=10)
-            feature_importance = model._return_features_of_importance(forecast_day=10)
+        # Calculate feature importance.
+        #
+        # This block used to be wrapped in `except Exception: pytest.skip(...)`,
+        # which turned real defects into a green run. It was concealing two of
+        # them: _return_features_of_importance did not exist at all, and
+        # predictive_power handed ppscore a frame that did not contain the
+        # column it was told to score. Let failures fail.
+        scores = model.predictive_power(forecast_range=10, plot=False)
+        assert not scores.empty
 
-            # Check if any cross-asset features are in top features
-            cross_asset_keywords = ['corr_', 'regime_', 'divergence_', 'ftq_', 'momentum_']
-            has_cross_asset = any(
-                any(keyword in str(feature) for keyword in cross_asset_keywords)
-                for feature in feature_importance
-            )
+        feature_importance = model._return_features_of_importance(forecast_day=10)
+        assert isinstance(feature_importance, dict)
 
-            # Note: May not always have cross-asset in top features, but they should exist
-            # Just verify feature importance calculation works
-            assert isinstance(feature_importance, (dict, list))
+        # The raw target must never be reported as a predictor of itself.
+        assert 'BTC_USDT_close' not in feature_importance
 
-        except Exception as e:
-            # Some configurations may not support feature importance
-            pytest.skip(f"Feature importance not available: {e}")
+        # Cross-asset engineering was requested, so those features must at
+        # least be present as candidates in the scored set.
+        cross_asset_keywords = ['corr_', 'regime_', 'divergence_', 'ftq_', 'momentum_']
+        scored_features = set(scores['x'].unique())
+        assert any(
+            keyword in str(feature)
+            for feature in scored_features
+            for keyword in cross_asset_keywords
+        ), f"no cross-asset features among {len(scored_features)} scored candidates"
 
 
 class TestDataAlignment:
