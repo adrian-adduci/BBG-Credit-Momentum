@@ -31,6 +31,22 @@ from logging_setup import get_logger
 
 path = pathlib.Path(__file__).parent.absolute()
 
+#: Where charts are written when no directory is given.
+#:
+#: This used to be hardcoded at each savefig call site. Because it is a
+#: tracked location, merely running the test suite overwrote committed
+#: repository assets with charts rendered from fixture data, leaving the
+#: working tree dirty after every run.
+DEFAULT_PLOT_DIR = path / "_img"
+
+
+def _resolve_plot_dir(plot_dir):
+    """Return the directory to write charts into, creating it if needed."""
+    target = pathlib.Path(plot_dir) if plot_dir is not None else DEFAULT_PLOT_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 # Debug and logger
 warnings.filterwarnings("ignore")
 logger = get_logger("_model", "_model.log")
@@ -78,6 +94,7 @@ class _build_model:
         estimators=1000,
         random_state=DEFAULT_RANDOM_STATE,
         max_forecast=30,
+        plot_dir=None,
     ):
 
         try:
@@ -87,6 +104,7 @@ class _build_model:
             self.logger.debug(" Must specify a model type")
 
         self.pipeline = pipeline
+        self.plot_dir = _resolve_plot_dir(plot_dir)
         self.timeseries_splits = 5
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
@@ -188,7 +206,7 @@ class _build_model:
             f"Predicative Power for {pipeline_target} at {forecast_range} Days"
         )
         sns.barplot(data=predictors_df, y="x", x="ppscore", palette="rocket")
-        plt.savefig(path / "_img" / "predictive_power.png", bbox_inches="tight")
+        plt.savefig(self.plot_dir / "predictive_power.png", bbox_inches="tight")
         if plot:
             f.show()
 
@@ -269,7 +287,7 @@ class _build_model:
                             f"Feature Importance for {target} Day Forecast: {pipeline_target}"
                         )
                         sns.barplot(y=list(keys), x=list(values), palette="rocket")
-                        plt.savefig(path / "_img" / "feats_importance.png")
+                        plt.savefig(self.plot_dir / "feats_importance.png")
                         if plot:
                             f.show()
 
@@ -320,7 +338,7 @@ class _build_model:
         ax.set(xticks=list(range(1, forecast_range + 1)))
         ax.legend(column_names)
         plt.savefig(
-            path / "_img" / "feats_importance_over_time.png", bbox_inches="tight"
+            self.plot_dir / "feats_importance_over_time.png", bbox_inches="tight"
         )
 
     # NOTE: _return_roc_and_precision_recall_curves was removed. It called
