@@ -41,6 +41,12 @@ from logging_setup import get_logger
 
 logger = get_logger(__name__, "_crypto_data_sources.log")
 
+#: Retry policy for exchange pagination. A persistent NetworkError -- a
+#: geo-block, dead DNS, revoked key -- must terminate rather than loop.
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF = 5.0  # seconds, doubled per consecutive failure
+MAX_RETRY_BACKOFF = 60.0
+
 
 class CryptoExchangeDataSource(DataSource):
     """
@@ -78,7 +84,9 @@ class CryptoExchangeDataSource(DataSource):
         timeframe: str = "1h",
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        limit: int = 1000
+        limit: int = 1000,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF
     ):
         """
         Initialize cryptocurrency exchange data source.
@@ -90,6 +98,10 @@ class CryptoExchangeDataSource(DataSource):
             start_date: Start date for historical data
             end_date: End date (defaults to current time)
             limit: Maximum candles per request
+            max_retries: Consecutive network failures tolerated per page before
+                giving up on a symbol (default: 3)
+            retry_backoff: Base seconds to wait between retries, doubled per
+                consecutive failure and capped at MAX_RETRY_BACKOFF
         """
         if symbols is None:
             symbols = ["BTC/USDT"]
@@ -100,6 +112,8 @@ class CryptoExchangeDataSource(DataSource):
         self.start_date = start_date or datetime.now() - timedelta(days=365)
         self.end_date = end_date or datetime.now()
         self.limit = limit
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
 
         # Initialize exchange
         try:
@@ -194,6 +208,14 @@ class CryptoExchangeDataSource(DataSource):
         since = int(self.start_date.timestamp() * 1000)  # Convert to milliseconds
         end_timestamp = int(self.end_date.timestamp() * 1000)
 
+        max_retries = getattr(self, "max_retries", DEFAULT_MAX_RETRIES)
+        backoff = getattr(self, "retry_backoff", DEFAULT_RETRY_BACKOFF)
+
+        # Consecutive failures on the *current* page. Reset after every
+        # successful page so a long pagination run tolerating occasional blips
+        # is not aborted by a global budget.
+        failures = 0
+
         # Pagination loop (exchanges limit candles per request)
         while since < end_timestamp:
             try:
@@ -209,6 +231,7 @@ class CryptoExchangeDataSource(DataSource):
                     break
 
                 all_ohlcv.extend(ohlcv)
+                failures = 0
 
                 # Update since to last candle timestamp + 1ms
                 since = ohlcv[-1][0] + 1
@@ -217,8 +240,28 @@ class CryptoExchangeDataSource(DataSource):
                 time.sleep(self.exchange.rateLimit / 1000)
 
             except ccxt.NetworkError as e:
-                logger.error(f"Network error for {symbol}: {e}")
-                time.sleep(5)  # Wait before retry
+                # This used to sleep 5s and `continue` unconditionally, with no
+                # attempt counter and without advancing `since`. A persistent
+                # NetworkError -- Binance answers 451 from restricted regions --
+                # therefore retried forever, and because the API handlers run
+                # this on the event loop thread it wedged the whole server.
+                failures += 1
+                if failures > max_retries:
+                    logger.error(
+                        f"Giving up on {symbol} after {max_retries} retries; "
+                        f"last network error: {e}"
+                    )
+                    break
+
+                delay = backoff * (2 ** (failures - 1))
+                delay = min(delay, MAX_RETRY_BACKOFF)
+                logger.warning(
+                    f"Network error for {symbol} "
+                    f"(attempt {failures}/{max_retries}), "
+                    f"retrying in {delay:.1f}s: {e}"
+                )
+                if delay:
+                    time.sleep(delay)
                 continue
 
             except ccxt.ExchangeError as e:

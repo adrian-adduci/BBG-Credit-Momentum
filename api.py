@@ -193,8 +193,24 @@ async def root():
     }
 
 
+# ---------------------------------------------------------------------------
+# Blocking handlers are declared `def`, not `async def`.
+#
+# FastAPI runs a coroutine handler on the event loop thread and a plain `def`
+# handler in a threadpool. Every handler below performs synchronous work --
+# ccxt HTTP calls, time.sleep in the exchange retry path, Excel reads, XGBoost
+# fitting -- so declaring them `async def` pinned that work to the event loop.
+# The server could then serve only one request at a time, and a slow upstream
+# took the whole process down: while POST /api/train was retrying an
+# unreachable exchange, GET / stopped answering as well.
+#
+# Only the WebSocket endpoint stays async, because it genuinely awaits.
+# tests/test_api_concurrency.py guards this.
+# ---------------------------------------------------------------------------
+
+
 @app.post("/api/train", response_model=TrainResponse, tags=["Training"])
-async def train_model(request: TrainRequest):
+def train_model(request: TrainRequest):
     """
     Train a machine learning model on historical cryptocurrency data.
 
@@ -318,7 +334,7 @@ async def train_model(request: TrainRequest):
 
 
 @app.post("/api/predict", response_model=PredictResponse, tags=["Prediction"])
-async def predict(request: PredictRequest):
+def predict(request: PredictRequest):
     """
     Generate predictions using a trained model.
 
@@ -388,7 +404,7 @@ async def list_strategies():
 
 
 @app.post("/api/backtest", response_model=BacktestResponse, tags=["Backtesting"])
-async def backtest_strategy(request: BacktestRequest):
+def backtest_strategy(request: BacktestRequest):
     """
     Backtest a trading strategy on historical data.
 
@@ -631,7 +647,7 @@ class CrossAssetAnalysisResponse(BaseModel):
 
 
 @app.post("/api/mixed/train", response_model=TrainResponse)
-async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
+def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
     """
     Train model with mixed crypto + credit portfolio.
 
@@ -811,7 +827,7 @@ async def train_mixed_portfolio(request: MixedPortfolioTrainRequest):
 
 
 @app.get("/api/mixed/analysis/{model_id}", response_model=CrossAssetAnalysisResponse)
-async def get_cross_asset_analysis(model_id: str):
+def get_cross_asset_analysis(model_id: str):
     """
     Get cross-asset analysis for a trained mixed portfolio model.
 
